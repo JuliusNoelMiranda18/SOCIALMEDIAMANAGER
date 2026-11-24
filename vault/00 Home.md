@@ -3,16 +3,16 @@
 ## State
 <!-- Agents: this block is the single source of truth. Edit values only. -->
 ```state
-current_stage: 0
-status: NOT_STARTED   # NOT_STARTED | IN_PROGRESS | AWAITING_APPROVAL | APPROVED | BLOCKED
-loop_iteration: 0
+current_stage: 1
+status: AWAITING_APPROVAL   # NOT_STARTED | IN_PROGRESS | AWAITING_APPROVAL | APPROVED | BLOCKED
+loop_iteration: 2
 last_updated: 2026-11-24
 ```
 
 | Stage | Status | Report |
 |---|---|---|
-| 0 Foundation | NOT_STARTED | [[Stage 0]] |
-| 1 Fake platform | NOT_STARTED | [[Stage 1]] |
+| 0 Foundation | APPROVED | [[Stage 0]] |
+| 1 Fake platform | AWAITING_APPROVAL | [[Stage 1]] |
 | 2 Data + content | NOT_STARTED | [[Stage 2]] |
 | 3 Adapters + idempotency | NOT_STARTED | [[Stage 3]] |
 | 4 Durable scheduler | NOT_STARTED | [[Stage 4]] |

@@ -1,0 +1,6 @@
+run: make up
+seed: make seed
+test: make test
+base_url: http://localhost:8000
+endpoints:
+  - GET /health

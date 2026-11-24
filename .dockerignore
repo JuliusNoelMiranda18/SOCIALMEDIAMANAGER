@@ -1,0 +1,7 @@
+.git
+.env
+.venv
+vault
+SOCIAL-MEDIA-VAULT
+docs
+node_modules
