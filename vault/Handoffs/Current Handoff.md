@@ -1,108 +1,153 @@
-# Handoff — Stage 4: Durable scheduler + worker
+# Handoff — Stage 5: Signed webhook + status tracking
 
-**Goal:** "publish at 9:00" survives crashes.
-**Stage start commit:** `15f0be7`
+**Goal:** status is trust. Only a verified platform callback marks an entry `published`.
+**Stage start commit:** `55a2a03`
 
 ## Context to read (only these)
-- Vault: [[System Map]], [[Publishing Service]], [[Data Model]], [[Api Layer]], [[Fake Platform]], [[ADR-002 Publish flow]], [[API]]
-- Source: `app/worker/__main__.py`, `app/models.py` (`Job`), `app/repos/campaigns.py`, `app/services/publishing.py`, `app/api/routes.py`, `app/api/schemas.py`, `app/config.py`, `migrations/versions/0002_publish.py`, `fake_platform/main.py` (`Control`), `scripts/probes/_stage3_lib.sh`, `Makefile`, `.env.example`, `tests/unit/test_publishing.py`, `tests/conftest.py`
+- Vault: [[System Map]], [[Publishing Service]], [[Data Model]], [[Api Layer]], [[Fake Platform]], [[Worker]], [[API]], [[ADR-002 Publish flow]]
+- Source: `fake_platform/main.py` (`send_callback`, `Control.forged_signature`), `fake_platform/signing.py` (`sign`), `app/models.py` (`WebhookEvent`, `SocialPostEntry`), `app/repos/campaigns.py` (`mark_accepted`), `app/services/jobs.py` (`schedule_campaign`), `app/api/routes.py`, `app/api/schemas.py`, `app/main.py` (body limit, error handlers), `app/config.py`, `scripts/make_env.py`, `scripts/probes/_stage3_lib.sh`, `scripts/probes/probe1_idempotency.sh`, `Makefile`
+
+## What the fake platform already sends (do not change the scheme)
+`POST WEBHOOK_URL`, raw JSON body `{"event_id": uuid, "post_id": <platform post id>, "status": "delivered", "platform": "...", "timestamp": <int>}`, headers `X-Timestamp: <int>` and `X-Signature: hex(HMAC-SHA256(WEBHOOK_SECRET, "<X-Timestamp>.<raw body>"))`. Forged mode sends 64 zeros. It is sent as a background task right after the 201, so it can arrive **before** the worker has written `platform_post_id`. It is never retried.
 
 ## Design (decided — do not redesign)
-- **Job = "publish this campaign".** `kind = 'publish_campaign'`, `payload = {"campaign_id": <int>}`. The handler calls `publishing.publish_campaign(session, campaign_id)` **unchanged** ([[ADR-002 Publish flow]]). Duplicate safety on a re-run comes from what Stage 3 already guarantees: accepted entries are skipped, an in-flight entry reuses its committed idempotency key.
-- **Claim** (one statement, then commit before running):
-  `UPDATE jobs SET status='running', attempts=attempts+1, locked_until=now()+lease WHERE id = (SELECT id FROM jobs WHERE (status='pending' AND run_at<=now()) OR (status='running' AND locked_until<now()) ORDER BY run_at, id FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING …`
-  The second branch is lease expiry: a killed worker's job is reclaimed once `locked_until` passes.
-- **Lease heartbeat:** while a job runs, a daemon thread with its **own** session renews `locked_until = now()+lease WHERE id=:id AND status='running'` every `lease/3` seconds, and stops when the job ends. `publish_campaign` stays unchanged even when Retry-After waits make a job longer than the lease.
-- **Outcomes:** handler returns → `status='done', locked_until=NULL, last_error=NULL`. Handler raises → if `attempts < JOB_MAX_ATTEMPTS`, set `status='pending'`, `run_at = now() + backoff` (reuse the full-jitter backoff idea, capped), `last_error = exception type + message[:200]`; otherwise `status='failed'`. The worker loop never dies on a job exception. Log one line per claim/outcome, with no tokens.
-- **One active job per campaign:** a partial unique index on `((payload->>'campaign_id'))` `WHERE kind='publish_campaign' AND status IN ('pending','running')`. Enqueue while one is active → 409. Race-safe because the DB enforces it.
-- **`POST /campaigns/{id}/publish` no longer blocks.** It enqueues a job due now and returns **202** + `JobOut`. Same 404/409 rules as schedule.
-- **`POST /campaigns/{id}/schedule`** body `{"run_at": <ISO-8601 datetime with timezone>}` → **202** + `JobOut`. A naive datetime or a bad body → 422; a missing campaign → 404; an active job → 409. A past `run_at` is allowed (runs at once).
-- **`GET /jobs/{id}`** → `JobOut` or 404. `JobOut = {id, kind, campaign_id, run_at, status, attempts, last_error, locked_until}`.
-- **Test clock (dev only):** `POST /_dev/advance-time {"seconds": int 1..86400}` moves time forward for jobs. It shifts `run_at` of `pending` jobs **and** `locked_until` of `running` jobs back by N seconds, and returns `{"shifted": <count>}`. It is registered only when `DEV_ENDPOINTS=true` (setting, default `false`; `.env.example` sets `true`; also add it to your local `.env`). Out-of-range or non-int seconds → 422. When the setting is off the route is a 404.
-- **Settings** (`app/config.py`, `.env.example`): `JOB_LEASE_SECONDS=30`, `JOB_MAX_ATTEMPTS=5`, `WORKER_POLL_SECONDS=1`, `DEV_ENDPOINTS`.
-- **Fake platform:** add `latency_ms: int = Field(0, ge=0, le=10000)` to `Control` / `ControlUpdate`. `POST /v1/posts` sleeps that long **after** storing the post and before responding, so a killed caller leaves an accepted post behind, which is the worst case for duplicates. `/_control/reset` clears it.
-- **Layering:** SQL in `app/repos/jobs.py`; `schedule_campaign` / `publish_now` / `advance_time` in `app/services/jobs.py`; worker loop + `run_once(session_factory) -> bool` in `app/worker/runner.py` (unit-testable); `app/worker/__main__.py` just loops `run_once` and sleeps `WORKER_POLL_SECONDS` when idle.
+- **Route** `POST /webhook/social-delivery`. Read the **raw** body (`await request.body()`) and verify it before parsing JSON.
+- **Verify** (in `app/services/webhooks.py`, a pure function plus small helpers):
+  1. Both headers present, and `X-Timestamp` is an int, else 400.
+  2. `abs(now - ts) <= WEBHOOK_TOLERANCE_SECONDS` (300, setting) in both directions, else 400 (`stale timestamp`).
+  3. Compute `sign(secret, ts, raw)` and compare with `hmac.compare_digest` (constant time), else 400. Reuse `fake_platform/signing.py::sign`, or copy its one line into `app/`; your choice, but the app must not import the fake platform's FastAPI app.
+  4. Only then parse the JSON: bad JSON or missing/invalid fields (`event_id` non-empty str ≤200, `post_id` str, `status` in `{"delivered","failed"}`) → 400. Body `timestamp` ≠ header → 400.
+  - Every rejection → 400 with a short reason, **no DB writes**, and one log line with the reason only (no secret, no signature).
+- **Dedupe:** `INSERT INTO webhook_events (event_id, raw_body, signature_valid, platform_post_id, status) … ON CONFLICT (event_id) DO NOTHING RETURNING id`. No row back → duplicate → 200 `{"result":"duplicate"}`, nothing else changes. Only **verified** events are stored, so a forged request can never use up a real `event_id`.
+- **Apply** in the same transaction as the insert, as a conditional SQL update (the Stage 3 pattern):
+  - `delivered` → `UPDATE social_post_entries SET status='published' WHERE platform_post_id=:pid AND status='publishing'`
+  - `failed` → `… SET status='failed', last_error='platform reported failure' WHERE platform_post_id=:pid AND status='publishing'`
+  - Response 200 `{"result":"applied"}` if a row changed, else `{"result":"unmatched"}`. A verified event for an unknown post or an already-terminal entry is still stored and still answered 200.
+- **Early-callback race:** `mark_accepted` must also check for a stored event. Set `status = CASE WHEN EXISTS (SELECT 1 FROM webhook_events WHERE platform_post_id=:pid AND status='delivered') THEN 'published' ELSE 'publishing' END` (and the same for `failed`, if simple). So the entry ends `published` whichever arrives first. Keep "acceptance always wins over a failure" otherwise.
+- **State machine** `draft → queued → publishing → published | failed`:
+  - Enqueueing a publish job (`schedule_campaign`) sets the campaign's entries `draft → queued` (conditional: only `draft`; same transaction as the job insert).
+  - `published` never regresses: no webhook, worker or retry write may move it. Audit every write in `app/repos/campaigns.py` and add `AND status <> 'published'` wherever one could. `publish_campaign` already skips `published`.
+  - `failed` stays retryable by an explicit publish (Stage 3 behaviour). Write that down in [[Publishing Service]] as the one allowed exit from `failed`.
+- **Migration `0004_webhooks`:** `webhook_events` + `platform_post_id text` (indexed) + `status text`. Downgrade drops them. Update `WebhookEvent`.
+- **Secret:** `scripts/make_env.py` also fills `WEBHOOK_SECRET` with `secrets.token_hex(32)` when it is empty or `changeme-placeholder`, and never replaces a real one. Run `make env` so the local `.env` gets a real secret (api and fake-platform both read it). `.env.example` keeps the placeholder. Add `WEBHOOK_TOLERANCE_SECONDS=300` to `app/config.py` and `.env.example`.
 
 ## Tasks — Iteration 1
 | # | Owner | Task | Files in scope | Acceptance check (command → expected) |
 |---|---|---|---|---|
-| 1 | Backend | Migration `0003_jobs`: `jobs.last_error text` + the partial unique index. Downgrade reverses both. Update `Job` model. | `migrations/versions/0003_jobs.py`, `app/models.py` | `docker compose run --rm api alembic downgrade 0002 && … upgrade head` → both succeed |
-| 2 | Backend | `app/repos/jobs.py` (enqueue, claim, renew, complete, retry_or_fail, get, advance) + `app/services/jobs.py` | as named | unit tests below pass |
-| 3 | Backend | Worker runner with heartbeat thread; `__main__` loop | `app/worker/runner.py`, `app/worker/__main__.py` | `docker compose logs worker` shows claim/done lines after a publish |
-| 4 | Backend | Routes + schemas: publish → 202 enqueue, `/schedule`, `GET /jobs/{id}`, `/_dev/advance-time` (flagged). Settings + `.env.example`. | `app/api/routes.py`, `app/api/schemas.py`, `app/config.py`, `.env.example`, `.env` | `curl -X POST :8000/campaigns/<id>/schedule -d '{"run_at":"2026-01-01T00:00:00"}'` → 422 (naive) |
-| 5 | Backend | Fake platform `latency_ms` control | `fake_platform/main.py`, `tests/unit/test_fake_platform.py` | latency test passes; `make probe` still green |
-| 6 | Backend | Keep the Stage 3 probes green: `publish()` in `_stage3_lib.sh` now POSTs publish, polls `GET /jobs/{id}` until `done`/`failed` (timeout 180 s), then prints `GET /campaigns/{id}`. Update existing unit tests that expected a synchronous 200. | `scripts/probes/_stage3_lib.sh`, `tests/unit/test_publishing.py`, other probe scripts only if needed | `make probe1 probe2 probe6` → ALL PASS |
-| 7 | Backend | **Probe 3** `scripts/probes/probe3_worker_crash.sh` + `make probe3`. Reset the fake platform, set `latency_ms` 1500, create 4 campaigns × `["instagram","x"]`, schedule all 4 with `run_at` = now+60 s, `advance-time 60`, wait until ≥1 fake-platform post exists but fewer than 8, `docker compose kill worker`, assert at least one job is still `running`, `docker compose up -d worker`, `advance-time` past the lease so the orphaned jobs are reclaimed at once, wait (timeout 120 s) for all 4 jobs `done`. Assert: all 8 entries have a `platform_post_id`; each entry's key has exactly 1 post in `GET /_posts`; `_posts` total = 8. Reset `latency_ms` to 0 at the end. | `scripts/probes/probe3_worker_crash.sh`, `Makefile` | `make probe3` → ALL PASS |
-| 8 | Backend | Unit tests (`tests/unit/test_jobs.py`): two sessions claim concurrently → different jobs, never the same one (SKIP LOCKED); a future `run_at` is not claimed; an expired lease is reclaimed and a live one is not; a handler exception → pending with a later `run_at` + `last_error`, and at `JOB_MAX_ATTEMPTS` → failed; heartbeat extends `locked_until`; schedule 202/404/409/422 (naive); publish 202; `GET /jobs` 404; advance-time shifts pending + running and returns 404 when the flag is off; a run_once end-to-end against the fake transport publishes the campaign. | `tests/unit/test_jobs.py` | `make up && make test && make lint` → all green |
-| 9 | Backend | Vault: new [[Worker]] module note (`vault/Modules/Worker.md`); update [[Publishing Service]] (the shortcut is gone; the worker is the caller), [[Data Model]] (0003), [[Api Layer]], [[API]] (new endpoints, publish now 202), [[Fake Platform]] (`latency_ms`), [[System Map]] if the wiring changed. | `vault/Modules/*`, `vault/Architecture/*` | notes mention every changed file |
+| 1 | Backend | Migration 0004 + model | `migrations/versions/0004_webhooks.py`, `app/models.py` | `alembic downgrade 0003 && upgrade head` → `0004 (head)` |
+| 2 | Backend | Verify + dedupe + apply; route; settings; `make_env` secret | `app/services/webhooks.py`, `app/repos/webhooks.py`, `app/api/routes.py`, `app/config.py`, `.env.example`, `scripts/make_env.py`, `.env` (via `make env`) | unit tests below; `make env` prints that it wrote a webhook secret once, and "already set" on a second run |
+| 3 | Backend | `queued` on enqueue; `mark_accepted` race fix; no-regress guards on `published` | `app/services/jobs.py`, `app/repos/jobs.py` or `app/repos/campaigns.py` | unit tests below |
+| 4 | Backend | **Probe 4** `scripts/probes/probe4_webhook.sh` + `make probe4`. (a) Fake platform reset, `forged_signature` on, publish a 2-platform campaign, wait for the job `done`, sleep 3 s → both entries `publishing` with a post id, `webhook_events` count unchanged. (b) Forged off, publish a new campaign → both `published` within 15 s. (c) The probe signs its own event with `WEBHOOK_SECRET` (read it via `docker compose exec -T api python -c …`; never echo it) for a `publishing` entry: POST it twice → `applied`, then `duplicate`; one `webhook_events` row. (d) Valid signature but timestamp now−600 → 400. (e) Signed body then one byte changed → 400. (f) A `failed` event for an already `published` entry → stays `published`. | `scripts/probes/probe4_webhook.sh`, `Makefile` | `make probe4` → ALL PASS |
+| 5 | Backend | Keep regression green: `probe1` line 10 expects `{'publishing'}` right after publish; now the webhook makes it `published`. Change it to accept `published` (the callback is the point of this stage). Check the other probes for the same assumption. | `scripts/probes/probe1_idempotency.sh`, others only if needed | `make probe probe5 probe1 probe2 probe6 probe3` → ALL PASS |
+| 6 | Backend | Unit tests `tests/unit/test_webhooks.py`: valid → published; forged / missing headers / non-int ts / stale past / stale future / modified body / bad JSON / bad status / ts mismatch → 400 and no row; duplicate → `duplicate` and processed once; a verified event before `mark_accepted` → entry ends `published`; `failed` event on `published` → unchanged; unknown post id → `unmatched` 200; enqueue → `queued`; constant-time compare used (`hmac.compare_digest` patched/spied or code-asserted). | `tests/unit/test_webhooks.py`, existing tests if needed | `make up && make test && make lint` → green |
+| 7 | Backend | Vault: new [[Webhook]] module note (`vault/Modules/Webhook.md`); update [[Publishing Service]] (state machine, the race fix), [[Data Model]] (0004), [[Api Layer]], [[API]], [[System Map]] (the arrow is already there; mark it built). | `vault/Modules/*`, `vault/Architecture/*` | notes cover every changed file |
 
 ## Out of scope
-- Do not change `publish_campaign`'s logic or the Stage 3 conditional writes.
-- Entries that used their 5 publish attempts stay `failed` (no "retry later" for entries in this stage).
-- No webhook work (Stage 5), no UI.
+- No fake-platform retry of callbacks, no UI, no changes to `publish_campaign`'s retry loop.
 
 ## Blockers
 _Agents write questions here instead of guessing._
 
 ## Backend report — Iteration 1
 **Files changed**
-- New: `migrations/versions/0003_jobs.py`, `app/repos/jobs.py`, `app/services/jobs.py`, `app/worker/runner.py`, `scripts/probes/probe3_worker_crash.sh`, `tests/unit/test_jobs.py`, `vault/Modules/Worker.md`
-- Changed: `app/models.py` (`Job.last_error`, partial unique index, `campaign_id` property), `app/config.py` (4 settings), `app/api/schemas.py` (`ScheduleIn`, `AdvanceTimeIn`, `JobOut`), `app/api/routes.py` (publish → 202, `/schedule`, `/jobs/{id}`, `dev_router` with `/_dev/advance-time`), `app/main.py` (includes `dev_router` only if `DEV_ENDPOINTS`), `app/services/errors.py` (`Conflict`), `app/worker/__main__.py`, `fake_platform/main.py` (`latency_ms`), `scripts/probes/_stage3_lib.sh` (`publish` = enqueue + `job_wait` + GET campaign), `Makefile` (`probe3`), `.env.example` + local `.env` (`DEV_ENDPOINTS=true`; the other three use defaults), `tests/conftest.py` (`DEV_ENDPOINTS=true`), `tests/unit/test_publishing.py` (2 endpoint tests now 202 + `run_once`), `tests/unit/test_fake_platform.py` (latency test)
-- Vault: [[Worker]] (new), [[Publishing Service]], [[Data Model]], [[Api Layer]], [[Fake Platform]], [[API]], [[System Map]] (worker → publishing service, api enqueues), [[00 Home]] map link
+- New: `migrations/versions/0004_webhooks.py`, `app/services/webhooks.py`, `app/repos/webhooks.py`, `tests/unit/test_webhooks.py`, `scripts/probes/probe4_webhook.sh`
+- Changed: `app/models.py` (`WebhookEvent.platform_post_id/status`, both `platform_post_id` indexed), `app/repos/campaigns.py` (`mark_queued`, `apply_delivery`, `mark_accepted` race fix, `status <> 'published'` on `mark_accepted` / `record_error` / `mark_publishing`), `app/services/jobs.py` (`mark_queued` in the job-insert transaction), `app/api/routes.py` (`POST /webhook/social-delivery`), `app/config.py` + `.env.example` (`WEBHOOK_TOLERANCE_SECONDS=300`), `scripts/make_env.py` (WEBHOOK_SECRET), `scripts/probes/probe1_idempotency.sh` (line 10), `Makefile` (`probe4`)
+- `.env`: `make env` wrote a real WEBHOOK_SECRET (value never printed). Second run: `already set`.
+- Vault: new [[Webhook]], [[DE-001 set literals in probe jget expressions]]; updated [[Publishing Service]] (state machine, race fix, the one exit from `failed`), [[Data Model]] (0004), [[Api Layer]], [[Fake Platform]], [[API]], [[System Map]] (arrow marked built), [[00 Home]] map link.
 
-**Decisions (within the design)**
-- `run_at` / `locked_until` columns are `timestamp without time zone`, so `ScheduleIn` takes an `AwareDatetime` and converts it to naive UTC in the schema; an offset that pushes it outside Python's datetime range (e.g. `9999-12-31T23:59:59-14:00`) → 422, not 500. `JobOut` times are therefore naive UTC strings (no `Z`).
-- Job retry delay reuses `publishing.backoff_seconds(attempts)` (full jitter, base 500 ms, cap 30 s).
-- `last_error` stores `"<Type>: <message>"[:200]`; the worker log line only prints the type.
-- `complete` / `retry_or_fail` / `renew` only touch rows still `running`.
-- The off-flag test reloads `app.main` with `dev_endpoints=False` and checks the real app gives 404 (then reloads it back).
-- Worker sets the `httpx` logger to WARNING (request lines are noise; they never contained tokens anyway).
+**Decisions**
+- `webhook_events` already existed (0001), so 0004 adds `platform_post_id` + `status` + index on them, plus an index on `social_post_entries.platform_post_id` (the webhook's lookup). Downgrade drops those four things, not the table.
+- `sign` is copied into `app/services/webhooks.py` and works on raw bytes; a unit test asserts it equals `fake_platform/signing.py::sign`.
+- Body validated by a small Pydantic model (strict types, no NUL in strings so Postgres cannot 500). `X-Timestamp` must match `[0-9]{1,12}` (so `1_000`, `+5`, ` 5` are 400). Signature compared as bytes (`compare_digest` on str raises on non-ASCII).
+- Route is `async` (needs `await request.body()`) and runs the sync DB work via `run_in_threadpool`.
+- `mark_accepted` handles both early `delivered` (→ published) and early `failed` (→ failed + `last_error`).
 
-**How to run:** `make up`, then `curl -X POST :8000/campaigns/<id>/publish` → 202 `{id,...}`; poll `GET :8000/jobs/<job id>`; `docker compose logs worker` shows `job N claimed …` / `job N done`. Schedule: `POST /campaigns/<id>/schedule {"run_at":"2030-01-01T09:00:00+02:00"}`; fast-forward with `POST /_dev/advance-time {"seconds":N}`.
+**How to run:** `make env && make up`, then `make probe4`.
 
-**Commands run (once, in order, after the last code change)**
-```
-$ make up        → exit 0 … Container socialmediamanager-api-1 Healthy
-$ make test      → 271 passed, 2 warnings in 15.34s
-$ make lint      → All checks passed! / 68 files already formatted
-$ make probe     → … PASS 3 posts stored / PASS reset clears posts (0 FAIL)
-$ make probe1 probe2 probe6 probe3   → exit 0; 49 PASS, 0 FAIL; ALL PASS ×4
-  probe2 gaps: [2.02, 2.05] s (seconds), [2.28, 2.98] s (http-date)
-  probe3: {"shifted":4} / killed the worker with 1 post(s) on the fake platform
-          PASS killed mid-run (1..7 posts) / PASS at least one job still running (orphaned)
-          PASS job 17..20 done / PASS 8 × "exactly 1 post" / PASS 8 posts in total
-          worker log: … job 20 done / job 17 claimed kind=publish_campaign attempt=2 / job 17 done
-          ALL PASS
-```
-Also: `docker compose run --rm api sh -c "alembic downgrade 0002 && alembic upgrade head && alembic current"` → `0003 (head)`; live `curl … /schedule -d '{"run_at":"2026-01-01T00:00:00"}'` → 422.
+**Commands run (final pass, once each)**
+- `alembic downgrade 0003 && alembic upgrade head && alembic current` (in api) → `0004 (head)`
+- `make env` ×2 → `wrote a fresh WEBHOOK_SECRET`, then `WEBHOOK_SECRET already set`
+- `make up` → `Container socialmediamanager-api-1 Healthy` (exit 0)
+- `make test` → `298 passed, 2 warnings in 39.95s`
+- `make lint` → `All checks passed!` / `72 files already formatted`
+- `make probe4` → 15 × PASS, `ALL PASS`
+- `make probe probe5 probe1 probe2 probe6 probe3` → each prints `ALL PASS` (fake_platform.sh ends `PASS reset clears posts`), exit 0, 0 `FAIL` lines. **But** probe1 printed two Python tracebacks behind a false PASS on line 10: my first edit used a `{a,b}` set literal, which macOS bash 3.2 brace-expands (see DE-001). Fixed to `all(… in ('publishing', 'published') …)`; re-ran `make probe1` alone → `ALL PASS`, 0 tracebacks.
 
-**Uncertain / for the Tester**
-- Crash loops are not capped: `attempts` only gates handler *exceptions*; a job reclaimed after repeated worker kills keeps being reclaimed (noted as a shortcut in [[Worker]]). Not required by the design.
-- The worker does not run migrations; after `make up` with a new migration it logs `worker loop error: ProgrammingError` until the api has migrated, then recovers (seen once in this run). `docker-compose.yml` was out of scope, so no `depends_on: api`.
-- `/_dev/advance-time` also expires *live* leases; harmless with one worker (heartbeat renews it), but with 2+ workers it could hand a running job to a second worker. Dev only.
-- Worth probing: concurrent `POST /publish` on one campaign (expect exactly one 202, rest 409), schedule bodies with odd offsets/leap seconds, `GET /jobs/<2^63>` → 422.
-## Tester — Iteration 1 — PASS
+**Tester focus**
+- Race gap (documented in [[Publishing Service]]): if the webhook's UPDATE runs before the worker's `mark_accepted` row write and its commit lands after `mark_accepted`'s EXISTS snapshot, the entry stays `publishing`. Very narrow; not covered by a test.
+- `make probe1` under `bash` (not zsh) — confirm no tracebacks.
+- The api accepts the placeholder secret if `.env` was never run through `make env` (no startup refusal; not asked for).
+- Logs: `docker compose logs api | grep "webhook rejected"` shows reasons only.
+
+## Tester — Iteration 1 — FAIL
 | Check | Result | Evidence (command + key output lines) |
 |---|---|---|
-| Boot | PASS | `make up` → api, worker, db, web, fake-platform `Healthy`; `curl :8000/health` 200, `curl :9000/health` 200 |
-| Unit tests + coverage | PASS | `make test` → `271 passed, 2 warnings in 14.55s`; `pytest -q --cov=app --cov=fake_platform` → TOTAL 97 %, `repos/jobs.py` 100 %, `services/jobs.py` 97 %, `worker/runner.py` 96 % |
-| Lint / format | PASS | `make lint` → `All checks passed!` / `68 files already formatted` |
-| T1 migration round trip | PASS | `docker compose run --rm api sh -c "alembic downgrade 0002 && alembic upgrade head && alembic current"` → `0003 (head)`; `\d jobs` shows `last_error text` + `uq_jobs_active_campaign UNIQUE ... WHERE kind='publish_campaign' AND status IN ('pending','running')` |
-| T3 worker logs | PASS | publish job 40 → `job 40 claimed kind=publish_campaign attempt=1` / `job 40 done`; `docker compose logs worker \| grep -ciE "token\|secret\|bearer\|gAAAA"` → 0 |
-| T4 naive run_at | PASS | `POST /campaigns/1482/schedule {"run_at":"2026-01-01T00:00:00"}` → 422 |
-| T6/regression probes | PASS | `make probe` exit 0 (21 PASS); `make probe5` ALL PASS (9); `make probe1` ALL PASS (11); `make probe2` ALL PASS (10, gaps [2.05, 2.02] s / [2.43, 3.02] s); `make probe6` ALL PASS (8) |
-| T7 / PLAN agent check: probe 3 | PASS | `make probe3` → `killed the worker with 1 post(s)` / `PASS at least one job still running (orphaned)` / `PASS job 21..24 done` / 8 × `exactly 1 post` / `PASS 8 posts in total` / log `job 21 claimed ... attempt=2` → `job 21 done` / `ALL PASS` |
-| Claim SQL | PASS | `repos/jobs.py::claim`: one `UPDATE ... WHERE id = (SELECT ... FOR UPDATE SKIP LOCKED LIMIT 1)` with branch `status='running' AND locked_until < now()`; commit before running; DB tz `Etc/UTC` so naive-UTC columns vs `now()` agree |
-| Heartbeat | PASS | `runner._heartbeat` opens its own `session_factory()` per beat; `stop.set()` + `beat.join()` in `finally`; `test_heartbeat_keeps_the_lease_alive` green |
-| Handler exception never kills loop | PASS | handler call wrapped in `except Exception` (unknown kind → KeyError also caught); outcome-write errors bubble to `__main__` `except Exception` → `worker loop error`, loop continues (seen live: `worker loop error: ProgrammingError` during my migration downgrade, next job 40 `done`) |
-| 409 enforced by DB index | PASS | 8 concurrent `POST /schedule` on campaign 1482 → `202` ×1, `409` ×7; service catches `IntegrityError` from the unique index, no read-then-write |
-| `/_dev/advance-time` flag off | PASS | `docker compose run --rm -e DEV_ENDPOINTS=false api python -c ...TestClient...` → `flag off advance-time -> 404`, `openapi has _dev: False` |
-| No 500 on bad input | PASS | /schedule: garbage string, empty body, malformed JSON, null, array body, `9999-12-31T23:59:59-14:00`, `0001-01-01T00:00:00+14:00`, campaign 0 / 2^63 / abc → 422; missing campaign → 404. /jobs: abc, -1, 2^63 → 422; 999999999 → 404. /_dev/advance-time: 0, 86401, 1.5, "5", true, 1e309, malformed → 422 |
+| Boot | PASS | `make up` → api, worker, db, web, fake-platform `Healthy` |
+| Unit tests | PASS | `make test` → `298 passed, 2 warnings in 43.03s` (before the new race test was added) |
+| Lint | PASS | `make lint` → `All checks passed!` / `72 files already formatted`; new test file also clean |
+| Probe 4 (forged → 400 unchanged, valid → published, duplicate once, stale 400, tamper 400, no regress) | PASS | `make probe4` → 15 × PASS, `ALL PASS` |
+| Regression probes | PASS | `make probe probe5 probe1 probe2 probe6 probe3` → exit 0; 5 × `ALL PASS` + `PASS  reset clears posts`; 0 `FAIL`, 0 `Traceback`/`Error` lines; probe1 line 10 `PASS  status publishing or published` |
+| Bad input on webhook route (15 cases) | PASS | `bash scripts/probes/probe4_bad_inputs.sh` → no headers / non-int / 40-digit / negative ts / non-ASCII / empty sig / signed non-JSON / invalid UTF-8 / array / NUL / bad status / 201-char id / string ts / future +600 / 2 MB → all 400; `no webhook_events rows stored (54 -> 54)`; `ALL PASS` |
+| Secrets / logs | PASS | `docker compose logs api \| grep "webhook rejected"` → reasons only (`invalid body`, `stale timestamp`); 0 log lines with the secret, the signature or `X-Signature`; secret not in git; `.env` ignored |
+| Code review: raw body verified before parse, `hmac.compare_digest`, rejection writes nothing, forged never stored, `published` never regresses | PASS | `verify()` checks headers → ts → `compare_digest` (bytes) → only then `model_validate_json`; `handle` raises before any session use; `NOT_PUBLISHED` on `mark_accepted`/`record_error`/`mark_publishing`, `apply_delivery` only moves `publishing`; dedupe via `ON CONFLICT (event_id) DO NOTHING` (unique constraint, not read-then-write) |
+| **Race webhook vs `mark_accepted`** | **FAIL** | `docker compose run --rm api pytest -q tests/acceptance/test_stage5_race.py` → `assert 'publishing' == 'published'` at lines 68 and 79, `2 failed`. Both interleavings reproduce; entry stuck `publishing` forever with a verified `delivered` event stored |
 
-**Observations (not issues)**
-- Attempt cap on crash loops: `claim` increments `attempts` but does not check `JOB_MAX_ATTEMPTS`, so a job whose run kills the worker every time is reclaimed forever (attempts can pass 5). This does not break Stage 4: the goal is crash survival with zero duplicates, which probe 3 shows, and the cap in the design only covers handler exceptions. Not filed. Worth a cap before anything production-like.
-- `{"run_at": 12345}` → 202: pydantic `AwareDatetime` reads ints as Unix-epoch UTC (job 31 ran with `run_at 1970-01-01 03:25:45`). It is an unambiguous UTC instant, not a 500, but the contract says ISO-8601. Senior Dev's call whether to add `strict`/string-only.
-- No fencing token: if a lease expires while the first worker is still alive (e.g. `/_dev/advance-time` with 2+ workers), the old worker's `renew`/`complete` still match `status='running'`. Harmless with the single worker in compose; duplicate safety still rests on Stage 3 idempotency keys.
-- Leftover test data: campaign 1482 has a pending job at 2030-01-01; harmless for probes.
+Issues: [[ISSUE-010 webhook and mark_accepted race leaves a delivered entry publishing]]
 
-Issues: none.
+Notes
+- New tester files: `scripts/probes/probe4_bad_inputs.sh` (re-runnable), `tests/acceptance/test_stage5_race.py` (red until ISSUE-010 is fixed, so `make test` is now red: 2 failed). Code is baked into the api image (no bind mount), so rebuild (`make up`) before running new tests.
+- Minor, not blocking: a 2 MB signed body gets 400 (`invalid body`), not 413 — acceptable per handoff (400 or 413). `signature_valid` is always `True` now (only verified events are stored); harmless.
+
+## Tasks — Iteration 2
+Tester FAIL on [[ISSUE-010 webhook and mark_accepted race leaves a delivered entry publishing]]. Everything else passed; change nothing else.
+
+| # | Owner | Task | Files in scope | Acceptance check (command → expected) |
+|---|---|---|---|---|
+| 1 | Backend | Serialize the two writers per platform post id. As the **first statement** of the webhook's DB transaction (before the dedupe insert) and of `mark_accepted`'s transaction (before its UPDATE), run `SELECT pg_advisory_xact_lock(hashtext(:platform_post_id))`. Under READ COMMITTED, the next statement takes a fresh snapshot after the lock is granted, so whichever writer goes second sees the other's commit. The lock is released at commit/rollback; no unlock call. Keep `mark_accepted`'s existing caller-commits contract; the lock just has to be in the same transaction as the write. Add a one-line comment at each site naming ISSUE-010. | `app/repos/webhooks.py`, `app/repos/campaigns.py` (and the service only if the transaction boundary needs it) | `make up && docker compose run --rm api pytest -q tests/acceptance/test_stage5_race.py` → `2 passed` |
+| 2 | Backend | Keep the tester's `tests/acceptance/test_stage5_race.py` as the regression test (do not weaken it). Update [[Webhook]] + [[Publishing Service]] notes: remove the "race gap" gotcha, describe the lock. Mark ISSUE-010 fixed (status line) with the fix. | vault notes, `vault/Issues/ISSUE-010 …` | notes updated |
+| 3 | Backend | Quick regression | — | `make test` all green, `make lint` clean, `make probe4 probe1` ALL PASS |
+
+## Backend report — Iteration 2
+**Files changed**
+- `app/repos/webhooks.py` — `store` runs `SELECT pg_advisory_xact_lock(hashtext(:p))` first (it is the first DB statement of the webhook request's transaction in `handle`).
+- `app/repos/campaigns.py` — `mark_accepted` runs the same lock before its UPDATE (first statement after `take_attempt`'s commit; caller-commits contract unchanged). Both sites comment ISSUE-010.
+- Vault: [[Webhook]], [[Publishing Service]] (race gap removed, lock described), ISSUE-010 status `fixed` + Resolution, `_Issues Index` row `fixed`.
+- Service layer untouched; race test untouched.
+
+**How to run:** `make up && docker compose run --rm api pytest -q tests/acceptance/test_stage5_race.py`
+
+**Commands run**
+```
+$ make up                      -> all containers Healthy
+$ docker compose run --rm api pytest -q tests/acceptance/test_stage5_race.py
+2 passed, 1 warning in 2.98s
+$ make test
+300 passed, 2 warnings in 21.69s
+$ make lint
+All checks passed!
+73 files already formatted
+$ make probe4 probe1
+... PASS  failed event on published entry: unmatched
+PASS  entry stays published
+ALL PASS                       (probe4)
+... PASS  x: exactly 1 post despite the timeout
+PASS  4 posts in total
+ALL PASS                       (probe1)
+```
+
+**Tester focus:** the lock lives in the repo functions (the race test calls them directly), so any other future caller of `store`/`mark_accepted` gets it too. `hashtext` collisions only cause extra waiting, never wrong results. No new unit test: the acceptance race test is the regression test.
+
+## Tester — Iteration 2 — PASS
+| Check | Result | Evidence (command + key output lines) |
+|---|---|---|
+| Diff review | PASS | `git diff -- app/repos/webhooks.py app/repos/campaigns.py`: `SELECT pg_advisory_xact_lock(hashtext(:p))` is the first statement of `store` (first DB statement in `handle`'s txn) and of `mark_accepted` (first after `take_attempt`'s commit), both comment ISSUE-010; no other behaviour change |
+| Boot | PASS | `make up` → api, worker, db, web, fake-platform Healthy |
+| ISSUE-010 repro | PASS | `docker compose run --rm api pytest -q tests/acceptance/test_stage5_race.py` → `2 passed, 1 warning in 2.86s` |
+| Unit + acceptance | PASS | `make test` → `300 passed, 2 warnings in 25.36s` |
+| Lint / format | PASS | `make lint` → `All checks passed!` / `73 files already formatted` |
+| probe4 (webhooks) | PASS | `failed event on published entry: unmatched`, `entry stays published`, `ALL PASS` |
+| probe1 (idempotency) | PASS | `x: exactly 1 post despite the timeout`, `4 posts in total`, `ALL PASS` |
+| probe3 (killed worker) | PASS | `killed mid-run`, jobs 86–89 done, `8 posts in total`, `ALL PASS` |
+
+Note: probes were run a second time only to count FAIL lines (`grep -c FAIL` → 0); not a flake re-run.
+Issues: [[ISSUE-010 webhook and mark_accepted race leaves a delivered entry publishing]] → verified. No new issues.

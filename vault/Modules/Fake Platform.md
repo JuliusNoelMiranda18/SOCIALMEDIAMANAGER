@@ -15,11 +15,11 @@
 | `get_stats` / `list_tokens` | `GET /_stats`, `GET /_tokens` | probe helpers (Stage 3) |
 | `send_callback` | `(post)` | builds and signs the delivery event, calls `deliver`, swallows errors with a warning |
 | `deliver` | `(url, body, headers)` | the one network call; tests monkeypatch it |
-| `sign` | `(secret, timestamp, body) -> hex` | HMAC-SHA256 over `"<ts>.<body>"`; Stage 5 reuses it |
+| `sign` | `(secret, timestamp, body) -> hex` | HMAC-SHA256 over `"<ts>.<body>"`; [[Webhook]] copies the same scheme into `app/services/webhooks.py` |
 
 ## Connections
 - Depends on: [[Api Layer]] · map: [[System Map]] · decision: [[ADR-001 Stack]] (`app.config.settings.webhook_secret`)
-- Used by: [[Publisher Adapters]] (via `FAKE_PLATFORM_URL`), [[Token Crypto]] (`/oauth/token`), Stage 5 webhook receiver
+- Used by: [[Publisher Adapters]] (via `FAKE_PLATFORM_URL`), [[Token Crypto]] (`/oauth/token`), [[Webhook]] (signed callbacks)
 
 ## Invariants
 - Check order: auth, idempotency replay, rate limit, failure rate, accept.

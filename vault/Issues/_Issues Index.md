@@ -13,3 +13,4 @@ Tester creates `ISSUE-XXX <title>.md` from [[Issue]] (template). Number sequenti
 | [[ISSUE-007 2xx without id or bad token body returns 500]] | 2xx w/o `id` / token body w/o `access_token` -> 500, entry stuck | backend | closed | 3 |
 | [[ISSUE-008 concurrent publishes double-send and undercount attempts]] | concurrent publish: 2 requests, attempts=1 (no row claim) | backend | closed | 3 |
 | [[ISSUE-009 concurrent publish at the cap leaves an accepted post marked failed]] | concurrent publish at the cap: accepted post ends `failed` (+ stale `last_error`), permanent | backend | closed | 3 |
+| [[ISSUE-010 webhook and mark_accepted race leaves a delivered entry publishing]] | webhook tx vs `mark_accepted` under READ COMMITTED: delivered entry stuck `publishing` forever | backend | verified | 5 |

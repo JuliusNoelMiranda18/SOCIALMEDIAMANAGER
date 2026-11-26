@@ -4,5 +4,5 @@ Approaches that were tried and proven wrong. **Read before attempting anything i
 
 | ID | Approach | Area | Stage |
 |---|---|---|---|
-
-_No dead ends yet._ Back to [[00 Home]].
+| [[DE-001 set literals in probe jget expressions]] | `{a,b}` set literal inside a probe `jget` (bash 3.2 brace-expands it: false PASS) | probes | 5 |
+ Back to [[00 Home]].

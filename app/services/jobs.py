@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Job
+from app.repos import campaigns as campaigns_repo
 from app.repos import jobs as repo
 from app.services.campaigns import get_campaign
 from app.services.errors import Conflict, NotFound
@@ -18,6 +19,7 @@ def schedule_campaign(session: Session, campaign_id: int, run_at: datetime | Non
     get_campaign(session, campaign_id)
     try:
         job = repo.enqueue(session, PUBLISH, {"campaign_id": campaign_id}, run_at)
+        campaigns_repo.mark_queued(session, campaign_id)  # draft -> queued, same transaction
         session.commit()
     except IntegrityError as e:
         session.rollback()

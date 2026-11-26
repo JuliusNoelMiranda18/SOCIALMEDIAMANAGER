@@ -53,7 +53,7 @@ class SocialPostEntry(Base):
     image_width: Mapped[int]
     image_height: Mapped[int]
     status: Mapped[str] = mapped_column(String(20), server_default="draft")
-    platform_post_id: Mapped[str | None] = mapped_column(Text)
+    platform_post_id: Mapped[str | None] = mapped_column(Text, index=True)  # webhook lookup (0004)
     idempotency_key: Mapped[str | None] = mapped_column(Text, unique=True)
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text)
@@ -105,7 +105,9 @@ class WebhookEvent(Base):
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     event_id: Mapped[str] = mapped_column(String(200), unique=True)
     raw_body: Mapped[str] = mapped_column(Text)
-    signature_valid: Mapped[bool]
+    signature_valid: Mapped[bool]  # always true: only verified events are stored
+    platform_post_id: Mapped[str | None] = mapped_column(Text, index=True)
+    status: Mapped[str | None] = mapped_column(Text)
     received_at: Mapped[datetime] = mapped_column(server_default=NOW)
 
 

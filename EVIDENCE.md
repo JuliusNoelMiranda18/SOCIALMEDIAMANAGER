@@ -29,3 +29,7 @@
 | One active job per campaign | 8 concurrent `POST /campaigns/{id}/schedule` | 1×202, 7×409 (DB unique index) | 2026-11-26 |
 | Naive / bad schedule input → 4xx | ~25 curl cases on `/schedule`, `/jobs/{id}`, `/_dev/advance-time` | all 422/404, no 500 | 2026-11-26 |
 | Stage 4 quality gates | `make lint`, `make test`, `make probe probe5 probe1 probe2 probe6` | clean, 271 passed (97%), all PASS | 2026-11-26 |
+| Forged callback → 400, status unchanged; valid → published | `make probe4` | 15 PASS: forged stays `publishing`, valid `published`, duplicate processed once, stale/tampered 400 | 2026-11-26 |
+| Callback/accept race ends `published` in both orders | `pytest tests/acceptance/test_stage5_race.py` | iter 1 `2 failed`; after advisory-lock fix `2 passed` | 2026-11-26 |
+| Bad webhook input never 500 | `scripts/probes/probe4_bad_inputs.sh` (15 cases) | all 400, 0 rows stored | 2026-11-26 |
+| Stage 5 quality gates | `make lint`, `make test`, regression probes | clean, 300 passed, all PASS | 2026-11-26 |

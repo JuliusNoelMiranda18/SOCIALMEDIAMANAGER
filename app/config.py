@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     backoff_base_ms: int = 500
     backoff_cap_ms: int = 30000
     max_retry_after_seconds: int = 60
-    webhook_secret: str = "changeme-placeholder"  # real HMAC secret arrives in Stage 5
+    webhook_secret: str = "changeme-placeholder"  # `make env` writes a real one
+    webhook_tolerance_seconds: int = 300  # replay window, both directions
     job_lease_seconds: float = 30
     job_max_attempts: int = 5
     worker_poll_seconds: float = 1

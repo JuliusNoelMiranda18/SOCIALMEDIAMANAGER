@@ -1,8 +1,8 @@
 # Data Model
 
 **Purpose:** SQLAlchemy 2 models for all seven tables, the engine/session, and the single Alembic migration that creates them.
-**Files:** `app/models.py`, `app/db.py`, `migrations/env.py`, `migrations/versions/0001_initial.py`, `migrations/versions/0002_publish.py`, `migrations/versions/0003_jobs.py`, `app/repos/posts.py`, `app/repos/campaigns.py`, `app/repos/tokens.py`
-**Last changed:** Stage 4, 2026-11-26
+**Files:** `app/models.py`, `app/db.py`, `migrations/env.py`, `migrations/versions/0001_initial.py`, `migrations/versions/0002_publish.py`, `migrations/versions/0003_jobs.py`, `migrations/versions/0004_webhooks.py`, `app/repos/posts.py`, `app/repos/campaigns.py`, `app/repos/tokens.py`, `app/repos/webhooks.py`
+**Last changed:** Stage 5, 2026-11-26
 
 ## Key functions / classes
 | Name | Signature | What it does |
@@ -14,6 +14,8 @@
 | `0001_initial` | Alembic revision | creates all 7 tables; downgrade drops them |
 | `0002_publish` | Alembic revision | `social_post_entries` + `idempotency_key` (text, UNIQUE, nullable), `attempts` (int, default 0), `last_error` (text); downgrade drops them |
 | `0003_jobs` | Alembic revision | `jobs.last_error` (text) + partial unique index `uq_jobs_active_campaign` on `((payload->>'campaign_id')) WHERE kind='publish_campaign' AND status IN ('pending','running')`; downgrade drops both |
+| `0004_webhooks` | Alembic revision | `webhook_events` + `platform_post_id` (text) + `status` (text), index `ix_webhook_events_platform_post_id`; index `ix_social_post_entries_platform_post_id`; downgrade drops all four (the table itself is from 0001) |
+| `repos.webhooks.store` | see [[Webhook]] | `ON CONFLICT (event_id) DO NOTHING RETURNING id` |
 | `Job.campaign_id` | property | `payload['campaign_id']` (for `JobOut`) |
 | `repos.jobs.*` | see [[Worker]] | claim / renew / complete / retry_or_fail / enqueue / get / advance |
 | `repos.tokens.get/upsert` | `(session, platform, ...)` | `platform_tokens` read and `ON CONFLICT (platform)` upsert, see [[Token Crypto]] |
@@ -24,8 +26,8 @@
 
 ## Invariants
 - `UNIQUE(campaign_id, platform)` and `UNIQUE(idempotency_key)` on `social_post_entries` (the unique index also serves key lookups); `platform_tokens.platform` and `webhook_events.event_id` unique.
-- Indexes: `campaigns.post_id`, `llm_calls.entry_id`, `jobs(status, run_at)` for the Stage 4 worker.
-- `jobs` is used by the [[Worker]] (Stage 4); `webhook_events` is a table only until Stage 5.
+- Indexes: `campaigns.post_id`, `llm_calls.entry_id`, `jobs(status, run_at)` for the Stage 4 worker, `social_post_entries.platform_post_id` and `webhook_events.platform_post_id` for the Stage 5 webhook and `mark_accepted`.
+- `jobs` is used by the [[Worker]] (Stage 4); `webhook_events` holds verified callbacks only ([[Webhook]], Stage 5).
 - One active publish job per campaign (`uq_jobs_active_campaign`).
 - The api container runs `alembic upgrade head` before uvicorn.
 

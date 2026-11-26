@@ -20,7 +20,7 @@ flowchart LR
   WORKER[app/worker: claim + lease] --> PUBSVC
   AIG --> FAKE[fake_platform]
   AX --> FAKE
-  FAKE -- signed callback --> HOOK[app/api webhook]
+  FAKE -- signed callback, built in Stage 5 --> HOOK[app/api webhook: verify, dedupe, apply]
   HOOK --> SVC
   WEB[web dashboard] --> API
   REPO --> DB[(Postgres)]
@@ -38,7 +38,7 @@ flowchart LR
 | Publisher interface + adapters | [[Publisher Adapters]] | 3 |
 | Token crypto | [[Token Crypto]] | 3 |
 | Worker + scheduler | [[Worker]] | 4 |
-| Webhook + status machine | [[Webhook]] | 5 |
+| Webhook + status machine | [[Webhook]] (built) | 5 |
 | Dashboard | [[Web]] | 6 |
 | Evals | [[Evals]] | 7 |
 

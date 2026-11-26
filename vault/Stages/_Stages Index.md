@@ -8,4 +8,5 @@ The Senior Dev writes `Stage N.md` from [[Stage Report]] (template) at each gate
 | 1 Fake platform | [[Stage 1]] | approved |
 | 2 Data + content | [[Stage 2]] | approved |
 | 3 Adapters + idempotency | [[Stage 3]] | approved 2026-11-26 |
-| 4 Durable scheduler | [[Stage 4]] | awaiting approval |
+| 4 Durable scheduler | [[Stage 4]] | approved 2026-11-26 |
+| 5 Signed webhook | [[Stage 5]] | awaiting approval |

@@ -42,3 +42,10 @@ Format per entry:
 - **What I did:** AI agents built the durable jobs worker (`SKIP LOCKED` claim, lease with heartbeat, expired-lease reclaim, retry with backoff), moved publishing into it unchanged, added `/schedule`, `GET /jobs/{id}`, a flag-gated `/_dev/advance-time` test clock, a fake-platform `latency_ms` control and probe 3.
 - **What went wrong or surprised me:** passed on the first loop. The Senior Dev fixed the design in the handoff up front (claim SQL, heartbeat, DB-enforced one-job-per-campaign), so the backend had nothing to invent. The tester noticed that crash-loop reclaims are uncapped and that an integer `run_at` is read as a Unix time; both were logged as known limitations rather than fixed.
 - **Decision:** `POST /publish` now returns 202 and enqueues a job, so the Stage 3 probes poll the job. Duplicate safety on re-runs still rests on the Stage 3 idempotency keys; no fencing token.
+
+## 2026-11-26 — Stage 5
+- **What I did:** AI agents built the signed webhook (raw-body HMAC, constant-time compare, ±300 s window, dedupe by `event_id`, verified events only), the entry state machine (`draft → queued → publishing → published | failed`, `published` final), real webhook-secret generation in `make env`, and probe 4.
+- **What went wrong or surprised me:** 2 loops.
+  - The backend agent flagged its own race: the callback can beat the worker's `mark_accepted`, and under READ COMMITTED each transaction missed the other's uncommitted write, leaving a delivered post `publishing` forever. The tester proved it with a two-session test (both orderings failed). Fix: both writers take a per-post-id `pg_advisory_xact_lock` first.
+  - A probe check written as a Python set literal `{a,b}` was brace-expanded by bash and passed falsely; caught by the backend agent and logged as DE-001.
+- **Decision:** only verified events are stored, so forged requests can't consume real event ids. A platform-reported failure is final for that post id (no automatic re-publish).

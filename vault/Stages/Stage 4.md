@@ -51,4 +51,4 @@ None.
 Stage 5: the signed webhook plus status tracking. The fake platform's HMAC callback is verified in constant time and deduplicated by `event_id`, and only a verified webhook moves an entry from `publishing` to `published`.
 
 ## Approval
-_Approved by user on <date>_
+Approved by user on 2026-11-26.

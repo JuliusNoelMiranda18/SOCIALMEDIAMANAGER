@@ -2,7 +2,7 @@
 
 **Purpose:** HTTP entrypoint (FastAPI), settings, the `/media` static mount, and the services that back the post/campaign endpoints.
 **Files:** `app/main.py`, `app/config.py`, `app/api/routes.py`, `app/api/schemas.py`, `app/services/posts.py`, `app/services/campaigns.py`, `app/services/errors.py` (`NotFound`, `InvalidInput`, `Conflict`)
-**Last changed:** Stage 4, 2026-11-26
+**Last changed:** Stage 5, 2026-11-26
 
 ## Key functions / classes
 | Name | Signature | What it does |
@@ -13,15 +13,16 @@
 | `get_campaign` | `GET /campaigns/{id}` | 404 if missing |
 | `publish_campaign` | `POST /campaigns/{id}/publish` | enqueue a job due now via `services.jobs` ([[Worker]]) → 202 `JobOut`; 404 unknown, 409 active job, 422 bad id |
 | `schedule_campaign` | `POST /campaigns/{id}/schedule` `{run_at}` | `ScheduleIn.run_at` must be timezone-aware (`AwareDatetime`), converted to naive UTC (overflow → 422) → 202 `JobOut`; 404 / 409 / 422 |
+| `social_delivery` | `POST /webhook/social-delivery` | raw body → [[Webhook]] `handle`; 400 on any verification failure, 200 `{result}` |
 | `get_job` | `GET /jobs/{id}` | `JobOut` or 404 |
 | `advance_time` | `POST /_dev/advance-time` `{seconds: strict int 1..86400}` | on `dev_router`, included by `app/main.py` only when `DEV_ENDPOINTS=true`; `{shifted}` |
 | startup key check | `app/main.py` import | invalid `TOKEN_ENCRYPTION_KEY` → api exits with a clear message ([[Token Crypto]]) |
 | `_invalid` | `RequestValidationError` handler | 422 without echoing input (NaN / lone surrogates would otherwise 500) |
 | `services.campaigns.create_campaign` | `(session, post_id, platforms, brand_name)` | images + captions + `llm_calls` in one transaction; on any error rolls back and deletes written files |
-| `Settings` | pydantic-settings | DB URL, fake platform URL, secrets, `MEDIA_DIR`, LLM settings; Stage 3: `FAKE_CLIENT_ID/SECRET`, `PUBLIC_BASE_URL`, `PUBLISH_TIMEOUT_SECONDS`, `PUBLISH_MAX_ATTEMPTS`, `BACKOFF_BASE_MS`, `BACKOFF_CAP_MS`, `MAX_RETRY_AFTER_SECONDS`; Stage 4: `JOB_LEASE_SECONDS`, `JOB_MAX_ATTEMPTS`, `WORKER_POLL_SECONDS`, `DEV_ENDPOINTS` (default false) |
+| `Settings` | pydantic-settings | DB URL, fake platform URL, secrets, `MEDIA_DIR`, LLM settings; Stage 3: `FAKE_CLIENT_ID/SECRET`, `PUBLIC_BASE_URL`, `PUBLISH_TIMEOUT_SECONDS`, `PUBLISH_MAX_ATTEMPTS`, `BACKOFF_BASE_MS`, `BACKOFF_CAP_MS`, `MAX_RETRY_AFTER_SECONDS`; Stage 4: `JOB_LEASE_SECONDS`, `JOB_MAX_ATTEMPTS`, `WORKER_POLL_SECONDS`, `DEV_ENDPOINTS` (default false); Stage 5: `WEBHOOK_SECRET` (filled by `make env`), `WEBHOOK_TOLERANCE_SECONDS` (300) |
 
 ## Connections
-- Depends on: [[Worker]] (job services), [[Data Model]], [[Image Pipeline]], [[Caption Composer]], [[Publishing Service]], [[Token Crypto]]
+- Depends on: [[Webhook]], [[Worker]] (job services), [[Data Model]], [[Image Pipeline]], [[Caption Composer]], [[Publishing Service]], [[Token Crypto]]
 - Used by: [[System Map]], [[API]]
 
 ## Invariants
@@ -32,6 +33,7 @@
 
 ## Tests
 - `tests/test_health.py` — `/health`
+- `tests/unit/test_webhooks.py` — webhook endpoint (see [[Webhook]])
 - `tests/unit/test_jobs.py` — publish/schedule/jobs/advance-time endpoints (see [[Worker]])
 - `tests/unit/test_api.py` — happy path, 4xx matrix for posts/campaigns/GET, failed generation saves nothing, >8 MB body → 413 (declared, garbage and chunked) and a normal campaign still 201
 

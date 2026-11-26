@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.api.schemas import (
@@ -14,7 +15,7 @@ from app.api.schemas import (
     ScheduleIn,
 )
 from app.db import get_session
-from app.services import campaigns, jobs, posts
+from app.services import campaigns, jobs, posts, webhooks
 from app.services.errors import Conflict, InvalidInput, NotFound
 
 router = APIRouter()
@@ -72,6 +73,21 @@ def get_job(job_id: Annotated[PgId, Path()], session: Db):
         return jobs.get_job(session, job_id)
     except NotFound as e:
         raise HTTPException(404, str(e)) from e
+
+
+@router.post("/webhook/social-delivery")
+async def social_delivery(
+    request: Request,
+    session: Db,
+    x_timestamp: Annotated[str | None, Header()] = None,
+    x_signature: Annotated[str | None, Header()] = None,
+) -> dict[str, str]:
+    raw = await request.body()  # verified as raw bytes before any JSON parsing
+    try:
+        result = await run_in_threadpool(webhooks.handle, session, raw, x_timestamp, x_signature)
+    except InvalidInput as e:
+        raise HTTPException(400, str(e)) from e
+    return {"result": result}
 
 
 @dev_router.post("/_dev/advance-time")

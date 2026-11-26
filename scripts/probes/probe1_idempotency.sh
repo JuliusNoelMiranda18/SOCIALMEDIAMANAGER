@@ -7,7 +7,9 @@ echo "== publish twice"
 C=$(campaign '["instagram","x"]')
 R=$(publish "$C")
 check "both entries accepted" "$(echo "$R" | jget "sorted(bool(e['platform_post_id']) for e in d['entries'])")" "[True, True]"
-check "status publishing (webhook marks published)" "$(echo "$R" | jget "{e['status'] for e in d['entries']}")" "{'publishing'}"
+# the signed callback may already have landed (Stage 5): either is correct right after publish.
+# No {a,b} literals here: bash 3.2 brace-expands them inside "$(...)".
+check "status publishing or published" "$(echo "$R" | jget "all(e['status'] in ('publishing', 'published') for e in d['entries'])")" True
 R2=$(publish "$C")
 check "second publish is a no-op" "$(echo "$R2" | jget "[e['attempts'] for e in d['entries']]")" "[1, 1]"
 for P in instagram x; do check "$P: exactly 1 post" "$(posts_for "$C" "$P")" 1; done

@@ -3,9 +3,9 @@
 ## State
 <!-- Agents: this block is the single source of truth. Edit values only. -->
 ```state
-current_stage: 4
+current_stage: 5
 status: AWAITING_APPROVAL   # NOT_STARTED | IN_PROGRESS | AWAITING_APPROVAL | APPROVED | BLOCKED
-loop_iteration: 1
+loop_iteration: 2
 last_updated: 2026-11-26
 ```
 
@@ -15,15 +15,15 @@ last_updated: 2026-11-26
 | 1 Fake platform | APPROVED | [[Stage 1]] |
 | 2 Data + content | APPROVED | [[Stage 2]] |
 | 3 Adapters + idempotency | APPROVED | [[Stage 3]] |
-| 4 Durable scheduler | AWAITING_APPROVAL | [[Stage 4]] |
-| 5 Signed webhook | NOT_STARTED | [[Stage 5]] |
+| 4 Durable scheduler | APPROVED | [[Stage 4]] |
+| 5 Signed webhook | AWAITING_APPROVAL | [[Stage 5]] |
 | 6 Dashboard | NOT_STARTED | [[Stage 6]] |
 | 7 AI quality layer | NOT_STARTED | [[Stage 7]] |
 | 8 Submission | NOT_STARTED | [[Stage 8]] |
 
 ## Map
 - Architecture: [[System Map]] · [[API]]
-- Modules: [[Api Layer]] · [[Fake Platform]] · [[Data Model]] · [[Image Pipeline]] · [[Caption Composer]] · [[Publishing Service]] · [[Publisher Adapters]] · [[Token Crypto]] · [[Worker]]
+- Modules: [[Api Layer]] · [[Fake Platform]] · [[Data Model]] · [[Image Pipeline]] · [[Caption Composer]] · [[Publishing Service]] · [[Publisher Adapters]] · [[Token Crypto]] · [[Worker]] · [[Webhook]]
 - Live work: [[Current Handoff]] · New session? Start with [[Session Handoff]]
 - Stages: [[_Stages Index]]
 - Issues: [[_Issues Index]] · Dead ends (approaches that failed): [[_Dead Ends Index]]
