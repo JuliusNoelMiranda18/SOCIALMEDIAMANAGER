@@ -2,9 +2,9 @@ from alembic import context
 from sqlalchemy import create_engine
 
 from app.config import settings
+from app.models import Base
 
-# No models yet (Stage 2), so no target_metadata.
 with create_engine(settings.database_url).connect() as conn:
-    context.configure(connection=conn, target_metadata=None)
+    context.configure(connection=conn, target_metadata=Base.metadata)
     with context.begin_transaction():
         context.run_migrations()

@@ -8,6 +8,8 @@ flowchart LR
   API[app/api] --> SVC[app/services]
   SVC --> REPO[app/repos]
   SVC --> CONTENT[app/content]
+  SVC --> MEDIA[(MEDIA_DIR PNGs, served at /media)]
+  CONTENT --> LLM[Gemini REST, optional]
   SVC --> PUB[SocialPublisher]
   PUB --> AIG[FakeInstagram adapter]
   PUB --> AX[FakeX adapter]

@@ -3,7 +3,7 @@
 **Status:** closed (stage 1 iteration 2)
 **Stage / iteration:** 1 / 1
 **Owner:** backend
-**Found by:** tester
+**Found by:** tester · [[Stage 1]] · [[_Issues Index]]
 
 ## Reproduce
 ```

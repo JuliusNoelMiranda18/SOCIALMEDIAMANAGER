@@ -38,13 +38,16 @@ Full output: [[Current Handoff]] (Tester, Iteration 1 and 2).
 - 422 bodies no longer include `input`/`ctx` on any fake-platform endpoint.
 
 ## Issues closed / still open
-- Closed: ISSUE-002 (format not in lint), ISSUE-003 (NaN/Infinity → 500). Open: none.
+- Closed: [[ISSUE-002 ruff format fails on test_fake_platform]] (format not in lint), [[ISSUE-003 failure_rate NaN or Infinity returns 500]] (NaN/Infinity → 500). Open: none.
 
 ## Dead ends logged
 None. (Note: `allow_inf_nan=False` alone was not enough, see BUILDLOG.)
+
+## Links
+[[00 Home]] · [[_Stages Index]] · [[Fake Platform]] · [[Api Layer]] · previous: [[Stage 0]]
 
 ## Next stage preview
 Stage 2: data model (posts, campaigns, social_post_entries, tokens, jobs, webhook_events, llm_calls), image pipeline and caption composer with an LLM wrapper and template fallback.
 
 ## Approval
-_Approved by user on <date>_
+_Approved by user on 2026-11-24_

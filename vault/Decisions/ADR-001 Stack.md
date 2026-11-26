@@ -12,3 +12,5 @@
 **Rejected:** Redis + RQ/BullMQ (extra service, and durability needs extra config); APScheduler (job store semantics are harder to prove for crash-resume).
 
 **Revisit if:** throughput needs exceed one Postgres worker pool — not expected in scope.
+
+**Shapes:** [[System Map]] · [[Data Model]] · [[Fake Platform]] · [[Api Layer]]

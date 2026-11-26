@@ -9,10 +9,12 @@ dependencies = [
   "sqlalchemy",
   "alembic",
   "psycopg[binary]",
+  "httpx",
+  "pillow",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "httpx", "ruff", "pyyaml"]
+dev = ["pytest", "pytest-cov", "ruff", "pyyaml"]
 
 [tool.setuptools.packages.find]
 include = ["app*", "fake_platform*"]

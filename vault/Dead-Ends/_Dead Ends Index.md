@@ -4,3 +4,5 @@ Approaches that were tried and proven wrong. **Read before attempting anything i
 
 | ID | Approach | Area | Stage |
 |---|---|---|---|
+
+_No dead ends yet._ Back to [[00 Home]].

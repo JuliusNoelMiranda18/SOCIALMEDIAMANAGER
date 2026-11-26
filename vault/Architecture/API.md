@@ -5,6 +5,11 @@ The frontend uses only what is listed here. Backend: update this in the same cha
 | Method | Path | Purpose | Request | Response | Errors | Stage |
 |---|---|---|---|---|---|---|
 | GET | /health | liveness | — | `{status}` | — | 0 |
+| POST | /posts | create a post | `{title (1–200), body (1–20000), source_url? (http/https), image_b64? (PNG/JPEG, ≤5 MB, ≤25 MP)}` | 201 `{id, title, created_at}` | 422 | 2 |
+| POST | /campaigns | generate images + captions for a post | `{post_id, platforms: ["instagram"\|"x", ...] (non-empty, unique), brand_name? (≤60)}` | 201 `{id, post_id, brand_name, created_at, entries: [{id, platform, caption, image_url, image_width, image_height, status}]}` | 404 unknown post, 422 | 2 |
+| GET | /campaigns/{id} | read a campaign | — | same as POST /campaigns | 404, 422 bad id | 2 |
+| any | any (api, port 8000) | request body cap | body > 8 MB (declared `Content-Length` or streamed size) | 413 `{detail}` before parsing | 413 | 2 |
+| GET | /media/{file} | generated PNGs (`image_url`) | — | `image/png` | 404 | 2 |
 
 ## Fake platform (port 9000)
 | Method | Path | Purpose | Stage |

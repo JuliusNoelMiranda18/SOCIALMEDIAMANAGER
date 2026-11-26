@@ -14,3 +14,9 @@
 | Callback signature verifies; forged does not | tester's own receiver + HMAC-SHA256 recompute with `WEBHOOK_SECRET` | normal `sig_valid=True`, forged `False` | 2026-11-24 |
 | No 500 on bad control input | `curl` NaN / Infinity / -Infinity to `/_control` | 422 each, state unchanged | 2026-11-24 |
 | Stage 1 quality gates | `make lint`, `make test`, `make probe` | lint + format clean, 16 passed, probe exit 0 | 2026-11-24 |
+| Images exact size per platform | `make probe5`; tester's Pillow check in the api container | 1080×1080 and 1600×900 PNG | 2026-11-26 |
+| Captions differ and obey platform rules | `bash scripts/probes/stage2_tester.sh` (23 edge cases + 20,000-input fuzz) | X ≤280, 1–2 hashtags, `bad=0` | 2026-11-26 |
+| One `llm_calls` row per caption | psql count before/after a 2-platform campaign | +2 rows, integer tokens/cost/latency | 2026-11-26 |
+| Malformed input → 4xx, never 500 | `scripts/probes/stage2_4xx.py` (79 cases) | all 4xx; >8 MB → 413 | 2026-11-26 |
+| Campaign creation is atomic | injected save failure | 500, no rows, no orphan image files | 2026-11-26 |
+| Stage 2 quality gates | `make lint`, `make test`, `make probe`, `make probe5` | clean, 194 passed (98%), all PASS | 2026-11-26 |

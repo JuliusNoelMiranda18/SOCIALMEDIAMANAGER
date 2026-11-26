@@ -15,7 +15,7 @@
 | `sign` | `(secret, timestamp, body) -> hex` | HMAC-SHA256 over `"<ts>.<body>"`; Stage 5 reuses it |
 
 ## Connections
-- Depends on: [[Api Layer]] (`app.config.settings.webhook_secret`)
+- Depends on: [[Api Layer]] · map: [[System Map]] · decision: [[ADR-001 Stack]] (`app.config.settings.webhook_secret`)
 - Used by: Stage 2+ adapters (via `FAKE_PLATFORM_URL`), Stage 5 webhook receiver
 
 ## Invariants

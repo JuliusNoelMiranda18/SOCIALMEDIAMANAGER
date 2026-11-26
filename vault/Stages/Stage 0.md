@@ -40,6 +40,9 @@ Full output: [[Current Handoff]] (Tester, Iteration 1 and 2).
 ## Dead ends logged
 None.
 
+## Links
+[[00 Home]] · [[_Stages Index]] · [[Api Layer]] · [[System Map]] · [[ADR-001 Stack]] · next: [[Stage 1]]
+
 ## Next stage preview
 Stage 1: the fake platform server (OAuth token, idempotent `POST /v1/posts`, `/_control` switches, signed delivery callback).
 
