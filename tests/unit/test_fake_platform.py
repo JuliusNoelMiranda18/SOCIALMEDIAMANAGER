@@ -182,3 +182,15 @@ def test_nested_partial_update_merges(c):
     assert rl == {"enabled": False, "retry_after_seconds": 11, "count": None, "format": "seconds"}
     c.post("/_control", json={"drop_response": {"delay_seconds": 5}})
     assert c.get("/_control").json()["drop_response"] == {"enabled": False, "delay_seconds": 5}
+
+
+def test_latency_after_storing_post(c):
+    h = auth(c)
+    assert c.post("/_control", json={"latency_ms": 300}).json()["latency_ms"] == 300
+    t = time.monotonic()
+    assert post(c, h).status_code == 201
+    assert time.monotonic() - t >= 0.3
+    assert len(c.get("/_posts").json()) == 1
+    for bad in (-1, 10001, "x"):
+        assert c.post("/_control", json={"latency_ms": bad}).status_code == 422
+    assert c.post("/_control/reset").json()["latency_ms"] == 0

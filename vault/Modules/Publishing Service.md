@@ -1,8 +1,8 @@
 # Publishing Service
 
 **Purpose:** Publishes every entry of a campaign through `SocialPublisher` and owns the retry policy (idempotency key, Retry-After, backoff, max attempts), per [[ADR-002 Publish flow]].
-**Files:** `app/services/publishing.py`, `POST /campaigns/{id}/publish` in `app/api/routes.py`
-**Last changed:** Stage 3 iteration 3, 2026-11-26
+**Files:** `app/services/publishing.py` (called by [[Worker]]'s `publish_campaign` job handler)
+**Last changed:** Stage 4 iteration 1, 2026-11-26 (caller only; logic unchanged)
 
 ## Key functions / classes
 | Name | Signature | What it does |
@@ -26,7 +26,7 @@
 
 ## Connections
 - Depends on: [[Publisher Adapters]] (protocol + factory only), [[Data Model]], [[Api Layer]] (`get_campaign`, `NotFound`)
-- Used by: [[Api Layer]] (`POST /campaigns/{id}/publish`), Stage 4 worker · map: [[System Map]] · contract: [[API]]
+- Used by: [[Worker]] (`HANDLERS['publish_campaign']`; `POST /campaigns/{id}/publish` now only enqueues), `backoff_seconds` also sets the job retry delay · map: [[System Map]] · contract: [[API]]
 
 ## Invariants
 - Publish never runs without a committed idempotency key; the same key is reused on every retry and every later publish.
@@ -36,10 +36,9 @@
 - A publish never 500s for one bad entry, and never leaves an entry in `publishing` without a post id once the cap is used.
 
 ## Tests
-- `tests/unit/test_publishing.py` — key visible from a second session inside the transport; Retry-After honoured; backoff 0.5→30 s capped; exhausted → failed; long Retry-After → failed without waiting; fatal; publish twice; token absent from logs; endpoint 200/404/422; services import no adapter; unexpected exception → that entry failed, next entry published; malformed 2xx ×5 → failed `malformed response`; exhausted entry not retried; two concurrent publishes → attempts == requests == 5; `test_late_publishing_write_never_undoes_failed`; `test_late_failure_never_overwrites_accepted[0,4]` — a concurrent accept lands while our request gets 503 (mid-retry and final attempt) → entry stays `publishing` with the post id, no `last_error`, no further send
+- `tests/unit/test_publishing.py` — endpoint is 202 + `run_once` (Stage 4); key visible from a second session inside the transport; Retry-After honoured; backoff 0.5→30 s capped; exhausted → failed; long Retry-After → failed without waiting; fatal; publish twice; token absent from logs; endpoint 200/404/422; services import no adapter; unexpected exception → that entry failed, next entry published; malformed 2xx ×5 → failed `malformed response`; exhausted entry not retried; two concurrent publishes → attempts == requests == 5; `test_late_publishing_write_never_undoes_failed`; `test_late_failure_never_overwrites_accepted[0,4]` — a concurrent accept lands while our request gets 503 (mid-retry and final attempt) → entry stays `publishing` with the post id, no `last_error`, no further send
 - `scripts/probes/probe1_idempotency.sh` (`make probe1`), `probe2_rate_limit.sh` (`make probe2`)
 
 ## Gotchas
-- shortcut: runs synchronously in the request, so a campaign with long waits holds the HTTP call; Stage 4 moves it into the worker.
 - `attempts`, status outcomes and `platform_post_id` are written in SQL, not through the ORM (`expire_on_commit=False`), so `publish_campaign` refreshes each entry after publishing it.
-- shortcut: no claim/lease. Concurrent publishes of one entry share the attempt cap and the key dedupes posts, but both may be in flight at once; correctness comes from the conditional writes alone. Stage 4's worker claim stops the parallel sends.
+- Stage 4: the API no longer calls this; one active job per campaign (DB index) plus the job lease stop parallel sends. The conditional writes still guard a reclaimed job overlapping a stale worker.

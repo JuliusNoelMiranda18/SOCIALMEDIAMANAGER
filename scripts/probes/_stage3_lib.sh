@@ -14,7 +14,25 @@ campaign() {
   curl -s -X POST "$B/campaigns" -H 'Content-Type: application/json' \
     -d "{\"post_id\":$pid,\"platforms\":$1}" | jget "d['id']"
 }
-publish() { curl -s -X POST "$B/campaigns/$1/publish"; }
+# job_wait <job id> [timeout s] -> polls GET /jobs/{id} until done/failed; prints the final status
+job_wait() {
+  local st end=$((SECONDS + ${2:-180}))
+  while [ $SECONDS -lt $end ]; do
+    st=$(curl -s "$B/jobs/$1" | jget "d.get('status')")
+    case "$st" in done|failed) echo "$st"; return;; esac
+    sleep 0.5
+  done
+  echo "timeout($st)"
+}
+# publish <campaign id> -> enqueues (202), waits for the worker, prints GET /campaigns/{id}
+publish() {
+  local R J
+  R=$(curl -s -X POST "$B/campaigns/$1/publish")
+  J=$(echo "$R" | jget "d.get('id', '')")
+  [ -n "$J" ] || { echo "publish not enqueued: $R" >&2; return 1; }
+  job_wait "$J" >/dev/null
+  curl -s "$B/campaigns/$1"
+}
 # posts_for <campaign id> <platform> -> number of fake-platform posts carrying that entry's key
 posts_for() {
   local key

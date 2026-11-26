@@ -16,7 +16,8 @@ flowchart LR
   TOK --> REPO
   PUB --> AIG[FakeInstagram adapter]
   PUB --> AX[FakeX adapter]
-  WORKER[app/worker] --> SVC
+  API -- enqueue job --> DB
+  WORKER[app/worker: claim + lease] --> PUBSVC
   AIG --> FAKE[fake_platform]
   AX --> FAKE
   FAKE -- signed callback --> HOOK[app/api webhook]

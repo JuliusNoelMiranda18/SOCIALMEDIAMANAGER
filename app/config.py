@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     backoff_cap_ms: int = 30000
     max_retry_after_seconds: int = 60
     webhook_secret: str = "changeme-placeholder"  # real HMAC secret arrives in Stage 5
+    job_lease_seconds: float = 30
+    job_max_attempts: int = 5
+    worker_poll_seconds: float = 1
+    dev_endpoints: bool = False  # registers /_dev/advance-time (test clock); never in prod
     media_dir: str = "/srv/media"
     llm_provider: str = "none"  # "none" (templates only) or "gemini"
     gemini_api_key: str = ""

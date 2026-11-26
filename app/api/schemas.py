@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -74,3 +75,31 @@ class CampaignOut(BaseModel):
     brand_name: str | None
     created_at: datetime
     entries: list[EntryOut]
+
+
+def _utc_naive(d: datetime) -> datetime:
+    """jobs.run_at is a naive UTC timestamp."""
+    try:
+        return d.astimezone(UTC).replace(tzinfo=None)
+    except OverflowError as e:  # e.g. 9999-12-31T23:59-14:00 leaves the datetime range
+        raise ValueError("datetime out of range") from e
+
+
+class ScheduleIn(BaseModel):
+    run_at: Annotated[AwareDatetime, AfterValidator(_utc_naive)]
+
+
+class AdvanceTimeIn(BaseModel):
+    seconds: int = Field(ge=1, le=86400, strict=True)
+
+
+class JobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    kind: str
+    campaign_id: int | None
+    run_at: datetime
+    status: str
+    attempts: int
+    last_error: str | None
+    locked_until: datetime | None

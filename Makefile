@@ -1,4 +1,4 @@
-.PHONY: env up down test lint seed probe probe5 probe1 probe2 probe6
+.PHONY: env up down test lint seed probe probe5 probe1 probe2 probe6 probe3
 env:
 	python3 scripts/make_env.py
 up:
@@ -23,3 +23,5 @@ probe2:
 	bash scripts/probes/probe2_rate_limit.sh
 probe6:
 	bash scripts/probes/probe6_tokens.sh
+probe3:
+	bash scripts/probes/probe3_worker_crash.sh

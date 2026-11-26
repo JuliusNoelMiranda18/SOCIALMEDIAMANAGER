@@ -2,7 +2,7 @@
 
 **Purpose:** In-memory simulator of Instagram/X publishing, with switches to force 429, 503, dropped responses and forged webhook signatures.
 **Files:** `fake_platform/main.py`, `fake_platform/signing.py`
-**Last changed:** Stage 3, 2026-11-26
+**Last changed:** Stage 4, 2026-11-26
 
 ## Key functions / classes
 | Name | Signature | What it does |
@@ -10,6 +10,7 @@
 | `create_post` | `POST /v1/posts` | auth, then idempotency replay, rate limit, failure rate, accept, schedule callback, optional delay |
 | `token` | `POST /oauth/token` | form body parsed by hand (no python-multipart); issues Bearer token |
 | `Control` / `ControlUpdate` | pydantic | switch state; partial update (nested switches merge field by field), `extra=forbid`, NaN/Infinity rejected with 422 |
+| `Control.latency_ms` | `int 0..10000`, default 0 | `POST /v1/posts` sleeps this long **after** storing the post and its key (a killed caller leaves an accepted post); reset clears it; used by probe 3 |
 | `record_post_requests` | HTTP middleware | appends `{at, idempotency_key, status}` to `stats` for every `POST /v1/posts` (arrival time; status filled after the response) |
 | `get_stats` / `list_tokens` | `GET /_stats`, `GET /_tokens` | probe helpers (Stage 3) |
 | `send_callback` | `(post)` | builds and signs the delivery event, calls `deliver`, swallows errors with a warning |
@@ -32,6 +33,7 @@
 ## Tests
 - `tests/unit/test_fake_platform.py` — every endpoint and switch, signature verify and forged, unreachable webhook, 422/400/401 paths
 - `scripts/probes/fake_platform.sh` (`make probe`) — live curl probe
+- `tests/unit/test_fake_platform.py::test_latency_after_storing_post` — Stage 4
 - `tests/unit/test_fake_platform.py::test_rate_limit_count_and_http_date`, `::test_stats_and_tokens` — Stage 3 additions
 
 ## Gotchas

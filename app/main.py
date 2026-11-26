@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import router
+from app.api.routes import dev_router, router
 from app.config import settings
 from app.crypto import load_key
 
@@ -58,6 +58,8 @@ def _invalid(_: Request, exc: RequestValidationError) -> JSONResponse:
 
 app.add_middleware(BodyLimit)
 app.include_router(router)
+if settings.dev_endpoints:
+    app.include_router(dev_router)
 Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
 

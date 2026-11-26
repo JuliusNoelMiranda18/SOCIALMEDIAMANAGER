@@ -14,6 +14,7 @@ os.environ["LLM_PROVIDER"] = "none"
 os.environ["TOKEN_ENCRYPTION_KEY"] = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # test only
 os.environ["FAKE_CLIENT_ID"] = "test-client"
 os.environ["FAKE_CLIENT_SECRET"] = "test-secret"
+os.environ["DEV_ENDPOINTS"] = "true"  # /_dev/advance-time
 
 _admin = create_engine(_main_url, isolation_level="AUTOCOMMIT")
 with _admin.connect() as c:

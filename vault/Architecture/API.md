@@ -8,7 +8,10 @@ The frontend uses only what is listed here. Backend: update this in the same cha
 | POST | /posts | create a post | `{title (1–200), body (1–20000), source_url? (http/https), image_b64? (PNG/JPEG, ≤5 MB, ≤25 MP)}` | 201 `{id, title, created_at}` | 422 | 2 |
 | POST | /campaigns | generate images + captions for a post | `{post_id, platforms: ["instagram"\|"x", ...] (non-empty, unique), brand_name? (≤60)}` | 201 `{id, post_id, brand_name, created_at, entries: [{id, platform, caption, image_url, image_width, image_height, status, attempts, last_error, platform_post_id}]}`; `status`: `draft` → `publishing` (accepted, awaiting webhook) / `failed`; `published` from Stage 5 | 404 unknown post, 422 | 2 |
 | GET | /campaigns/{id} | read a campaign | — | same as POST /campaigns | 404, 422 bad id | 2 |
-| POST | /campaigns/{id}/publish | publish every entry not yet accepted (synchronous until Stage 4; see [[Publishing Service]]) | — | 200 same shape as GET /campaigns/{id} | 404 unknown campaign, 422 bad id | 3 |
+| POST | /campaigns/{id}/publish | enqueue a publish job due now; the [[Worker]] publishes every entry not yet accepted ([[Publishing Service]]) | — | 202 `JobOut` | 404 unknown campaign, 409 campaign already has a pending/running job, 422 bad id | 3, 4 |
+| POST | /campaigns/{id}/schedule | publish later | `{run_at}` ISO-8601 **with timezone** (past = run at once) | 202 `JobOut` | 404, 409 active job, 422 naive/bad datetime or body | 4 |
+| GET | /jobs/{id} | poll a job | — | 200 `JobOut` = `{id, kind, campaign_id, run_at, status (pending\|running\|done\|failed), attempts, last_error, locked_until}`; times are naive UTC | 404, 422 bad id | 4 |
+| POST | /_dev/advance-time | dev test clock (only when `DEV_ENDPOINTS=true`, else 404) | `{seconds: int 1..86400}` | 200 `{shifted}`: pending `run_at` and running `locked_until` moved N s earlier | 422, 404 when off | 4 |
 | any | any (api, port 8000) | request body cap | body > 8 MB (declared `Content-Length` or streamed size) | 413 `{detail}` before parsing | 413 | 2 |
 | GET | /media/{file} | generated PNGs (`image_url`) | — | `image/png` | 404 | 2 |
 
@@ -22,5 +25,5 @@ The frontend uses only what is listed here. Backend: update this in the same cha
 | GET | /_control | current switches | 1 |
 | GET | /_stats | `{post_requests: [{at, idempotency_key, status}]}`, every `POST /v1/posts` (401s too) | 3 |
 | GET | /_tokens | issued access tokens (dev-only, for probe 6) | 3 |
-| POST | /_control | partial update: `rate_limit` (`enabled`, `retry_after_seconds`, `count` auto-off after N fresh 429s, `format` `seconds`\|`http-date`), `failure_rate`, `drop_response`, `forged_signature`, `webhook_url` (422 on bad values) | 1 |
+| POST | /_control | partial update: `rate_limit` (`enabled`, `retry_after_seconds`, `count` auto-off after N fresh 429s, `format` `seconds`\|`http-date`), `failure_rate`, `drop_response`, `forged_signature`, `webhook_url`, `latency_ms` (0..10000, sleep after storing the post; Stage 4) (422 on bad values) | 1, 4 |
 | POST | /_control/reset | clear posts, keys, tokens, stats; switches to defaults | 1, 3 |

@@ -16,6 +16,7 @@ from app.models import SocialPostEntry
 from app.publishers.fake import FakeInstagramPublisher, FakeXPublisher
 from app.repos import campaigns as repo
 from app.services import publishing
+from app.worker.runner import run_once
 
 client = TestClient(app, raise_server_exceptions=False)
 OK = httpx.Response(201, json={"id": "p1"})
@@ -134,18 +135,22 @@ def test_token_never_logged(wire, caplog):
 
 
 def test_endpoint(wire):
+    """Publish is enqueued (202); the worker runs publish_campaign."""
     c = campaign(["instagram", "x"])
     wire(OK, OK)
     r = client.post(f"/campaigns/{c['id']}/publish")
-    assert r.status_code == 200
-    e = r.json()["entries"][0]
+    assert r.status_code == 202 and r.json()["status"] == "pending"
+    assert run_once()
+    e = client.get(f"/campaigns/{c['id']}").json()["entries"][0]
     assert (e["status"], e["attempts"], e["last_error"], e["platform_post_id"]) == (
         "publishing",
         1,
         None,
         "p1",
     )
-    assert client.post(f"/campaigns/{c['id']}/publish").status_code == 200  # no-op replay
+    assert client.post(f"/campaigns/{c['id']}/publish").status_code == 202  # replay: a no-op job
+    assert run_once()
+    assert [e["attempts"] for e in client.get(f"/campaigns/{c['id']}").json()["entries"]] == [1, 1]
 
 
 @pytest.mark.parametrize("cid,code", [(999, 404), (0, 422), ("abc", 422), (2**63, 422)])
@@ -169,8 +174,9 @@ def test_unexpected_error_fails_one_entry_and_continues(wire, monkeypatch):
         return fake.publisher()
 
     monkeypatch.setattr(publishing, "get_publisher", get_publisher)
-    r = client.post(f"/campaigns/{c['id']}/publish")
-    assert r.status_code == 200
+    assert client.post(f"/campaigns/{c['id']}/publish").status_code == 202
+    assert run_once()
+    r = client.get(f"/campaigns/{c['id']}")
     got = {e["platform"]: (e["status"], e["last_error"]) for e in r.json()["entries"]}
     assert got == {"instagram": ("failed", "RuntimeError"), "x": ("publishing", None)}
 

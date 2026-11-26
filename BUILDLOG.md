@@ -37,3 +37,8 @@ Format per entry:
   - Iter 3: all status writes became conditional SQL updates (acceptance always wins; failure only without a post id; a late write can't undo `failed`). The first version only fixed two writes; the stress test showed two more late writes needed the same pattern.
   - A backend agent deleted 61 stale generated images in `./media` that collided with new campaign ids after a DB reset (test artifacts only).
 - **Decision:** no locks or leases in Stage 3; the Stage 4 worker's claim handles concurrency properly. Publishing stays synchronous until then.
+
+## 2026-11-26 — Stage 4
+- **What I did:** AI agents built the durable jobs worker (`SKIP LOCKED` claim, lease with heartbeat, expired-lease reclaim, retry with backoff), moved publishing into it unchanged, added `/schedule`, `GET /jobs/{id}`, a flag-gated `/_dev/advance-time` test clock, a fake-platform `latency_ms` control and probe 3.
+- **What went wrong or surprised me:** passed on the first loop. The Senior Dev fixed the design in the handoff up front (claim SQL, heartbeat, DB-enforced one-job-per-campaign), so the backend had nothing to invent. The tester noticed that crash-loop reclaims are uncapped and that an integer `run_at` is read as a Unix time; both were logged as known limitations rather than fixed.
+- **Decision:** `POST /publish` now returns 202 and enqueues a job, so the Stage 3 probes poll the job. Duplicate safety on re-runs still rests on the Stage 3 idempotency keys; no fencing token.

@@ -25,3 +25,7 @@
 | No plaintext token in DB or logs | `make probe6` (`pg_dump` + container logs vs `/_tokens`) | 8 PASS, none found | 2026-11-26 |
 | Concurrent publishes never mark an accepted post failed | `python3 scripts/probes/stage3_concurrency_stress.py 0.5 8 25 3` (8 runs, 510 entries) | `anomalies=0` | 2026-11-26 |
 | Stage 3 quality gates | `make lint`, `make test` | clean, 253 passed (98%) | 2026-11-26 |
+| Worker crash mid-batch → all published, zero duplicates | `make probe3` (4 campaigns × 2 platforms, `docker compose kill worker` mid-batch, restart) | job reclaimed `attempt=2`; 8 entries × exactly 1 post; 8 posts total | 2026-11-26 |
+| One active job per campaign | 8 concurrent `POST /campaigns/{id}/schedule` | 1×202, 7×409 (DB unique index) | 2026-11-26 |
+| Naive / bad schedule input → 4xx | ~25 curl cases on `/schedule`, `/jobs/{id}`, `/_dev/advance-time` | all 422/404, no 500 | 2026-11-26 |
+| Stage 4 quality gates | `make lint`, `make test`, `make probe probe5 probe1 probe2 probe6` | clean, 271 passed (97%), all PASS | 2026-11-26 |

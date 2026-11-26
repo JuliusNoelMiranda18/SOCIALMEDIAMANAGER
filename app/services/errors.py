@@ -4,3 +4,7 @@ class NotFound(Exception):
 
 class InvalidInput(ValueError):
     pass
+
+
+class Conflict(Exception):
+    pass

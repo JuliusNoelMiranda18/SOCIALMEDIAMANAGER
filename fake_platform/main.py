@@ -55,6 +55,7 @@ class Control(BaseModel):
     drop_response: DropResponse = DropResponse()
     forged_signature: bool = False
     webhook_url: str = DEFAULT_WEBHOOK_URL
+    latency_ms: int = Field(0, ge=0, le=10000)
 
 
 class ControlUpdate(BaseModel):
@@ -64,6 +65,7 @@ class ControlUpdate(BaseModel):
     drop_response: DropResponse | None = None
     forged_signature: bool | None = None
     webhook_url: str | None = None
+    latency_ms: int | None = Field(None, ge=0, le=10000)
 
 
 class PostIn(BaseModel):
@@ -182,6 +184,8 @@ async def create_post(
     response = {"id": post["id"], "platform": post["platform"], "status": "accepted"}
     idempotency[idempotency_key] = (201, response)
     background.add_task(send_callback, post)
+    if control.latency_ms:  # after storing: a caller killed now leaves an accepted post behind
+        await asyncio.sleep(control.latency_ms / 1000)
     if control.drop_response.enabled:
         await asyncio.sleep(control.drop_response.delay_seconds)
     return response

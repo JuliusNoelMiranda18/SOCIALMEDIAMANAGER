@@ -56,4 +56,4 @@ None. (ISSUE-009's first fix was extended, not abandoned: two more late writes n
 Stage 4: durable scheduler + worker (`run_at`, `SKIP LOCKED` claim, lease expiry, `POST /campaigns/{id}/schedule`, test clock); probe 3 kills the worker mid-batch and expects zero duplicates.
 
 ## Approval
-_Approved by user on <date>_
+Approved by user on 2026-11-26.
