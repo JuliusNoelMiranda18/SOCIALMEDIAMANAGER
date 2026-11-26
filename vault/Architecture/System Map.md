@@ -10,7 +10,10 @@ flowchart LR
   SVC --> CONTENT[app/content]
   SVC --> MEDIA[(MEDIA_DIR PNGs, served at /media)]
   CONTENT --> LLM[Gemini REST, optional]
-  SVC --> PUB[SocialPublisher]
+  SVC --> PUBSVC[publishing service]
+  PUBSVC --> PUB[SocialPublisher]
+  PUB --> TOK[token store, AES-GCM]
+  TOK --> REPO
   PUB --> AIG[FakeInstagram adapter]
   PUB --> AX[FakeX adapter]
   WORKER[app/worker] --> SVC
@@ -30,6 +33,7 @@ flowchart LR
 | Data model + migrations | [[Data Model]] | 2 |
 | Image pipeline | [[Image Pipeline]] | 2 |
 | Caption composer + LLM wrapper | [[Caption Composer]] | 2, 7 |
+| Publish flow + retry policy | [[Publishing Service]] | 3 |
 | Publisher interface + adapters | [[Publisher Adapters]] | 3 |
 | Token crypto | [[Token Crypto]] | 3 |
 | Worker + scheduler | [[Worker]] | 4 |

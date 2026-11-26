@@ -3,18 +3,18 @@
 ## State
 <!-- Agents: this block is the single source of truth. Edit values only. -->
 ```state
-current_stage: 2
+current_stage: 3
 status: AWAITING_APPROVAL   # NOT_STARTED | IN_PROGRESS | AWAITING_APPROVAL | APPROVED | BLOCKED
-loop_iteration: 2
-last_updated: 2026-11-24
+loop_iteration: 3
+last_updated: 2026-11-26
 ```
 
 | Stage | Status | Report |
 |---|---|---|
 | 0 Foundation | APPROVED | [[Stage 0]] |
 | 1 Fake platform | APPROVED | [[Stage 1]] |
-| 2 Data + content | AWAITING_APPROVAL | [[Stage 2]] |
-| 3 Adapters + idempotency | NOT_STARTED | [[Stage 3]] |
+| 2 Data + content | APPROVED | [[Stage 2]] |
+| 3 Adapters + idempotency | AWAITING_APPROVAL | [[Stage 3]] |
 | 4 Durable scheduler | NOT_STARTED | [[Stage 4]] |
 | 5 Signed webhook | NOT_STARTED | [[Stage 5]] |
 | 6 Dashboard | NOT_STARTED | [[Stage 6]] |
@@ -23,11 +23,11 @@ last_updated: 2026-11-24
 
 ## Map
 - Architecture: [[System Map]] · [[API]]
-- Modules: [[Api Layer]] · [[Fake Platform]] · [[Data Model]] · [[Image Pipeline]] · [[Caption Composer]]
+- Modules: [[Api Layer]] · [[Fake Platform]] · [[Data Model]] · [[Image Pipeline]] · [[Caption Composer]] · [[Publishing Service]] · [[Publisher Adapters]] · [[Token Crypto]]
 - Live work: [[Current Handoff]]
 - Stages: [[_Stages Index]]
 - Issues: [[_Issues Index]] · Dead ends (approaches that failed): [[_Dead Ends Index]]
-- Decisions: [[ADR-001 Stack]]
+- Decisions: [[ADR-001 Stack]] · [[ADR-002 Publish flow]]
 
 ## Linking rules (keeps the Obsidian graph connected)
 - Every new note links to at least one existing note, and the matching index links back to it.

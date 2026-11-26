@@ -6,4 +6,5 @@ The Senior Dev writes `Stage N.md` from [[Stage Report]] (template) at each gate
 |---|---|---|
 | 0 Foundation | [[Stage 0]] | approved |
 | 1 Fake platform | [[Stage 1]] | approved |
-| 2 Data + content | [[Stage 2]] | awaiting approval |
+| 2 Data + content | [[Stage 2]] | approved |
+| 3 Adapters + idempotency | [[Stage 3]] | awaiting approval |

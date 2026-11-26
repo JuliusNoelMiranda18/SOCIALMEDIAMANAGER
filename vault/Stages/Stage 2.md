@@ -49,8 +49,13 @@ None.
 ## Links
 [[00 Home]] · [[_Stages Index]] · [[System Map]] · previous: [[Stage 1]]
 
+## Follow-ups (raised by the user at the gate, not in Stage 2 scope)
+- Images are only weakly tied to the blog post: without an uploaded image every post gets the same gradient title card.
+- Proposed: a fake blog (seeded HTML articles with `og:image`, e.g. served by fake-platform at `/blog/<slug>`), creating a post from its URL and using the article's hero image as the source, plus `GET /posts/{id}`. Fallback: richer title card (excerpt, per-post colour). Needs SSRF limits (allowed hosts, timeout, size cap).
+- Owner: Senior to schedule (candidate for Stage 6 demo polish or Stage 8).
+
 ## Next stage preview
 Stage 3: `SocialPublisher` interface with FakeInstagram/FakeX adapters, idempotency keys from `(post_id, platform)` stored before the call, 429 `Retry-After` + backoff, AES-GCM encrypted tokens.
 
 ## Approval
-_Approved by user on <date>_
+_Approved by user on 2026-11-26_

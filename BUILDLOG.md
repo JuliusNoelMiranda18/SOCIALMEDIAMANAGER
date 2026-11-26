@@ -28,3 +28,12 @@ Format per entry:
   - Iteration 1 FAIL: user input could make the X template exceed 280 chars (a negative length budget made the clip keep most of the title) and a `#fragment` URL added a third hashtag. Also the brand strip touched the safe margin by 1px. Both fixed with a final rule guard and regression + fuzz tests.
   - The tester showed a 30 MB request was accepted; an 8 MB body cap (413) was added.
 - **Decision:** Gemini stays optional and mock-tested only (no key in the repo). Captions default to the deterministic template.
+
+## 2026-11-26 — Stage 3
+- **What I did:** AI agents built the SocialPublisher protocol and two fake adapters, the publish service with Retry-After/backoff/attempt cap, AES-GCM token storage and probes 1, 2, 6. Design fixed up front in ADR-002 (key per campaign entry, stored before the call; retries owned by the service).
+- **What went wrong or surprised me:** it took all 3 loops.
+  - Iter 1: a corrupt nonce, a 2xx without `id` and a malformed token reply each caused a 500 and could leave an entry stuck in `publishing`; concurrent publishes undercounted attempts.
+  - Iter 2: the tester's stress test found that concurrent publishes could mark a post the platform had accepted as `failed` (22/25 runs). Cause: each request wrote status from its own stale ORM copy, last commit wins.
+  - Iter 3: all status writes became conditional SQL updates (acceptance always wins; failure only without a post id; a late write can't undo `failed`). The first version only fixed two writes; the stress test showed two more late writes needed the same pattern.
+  - A backend agent deleted 61 stale generated images in `./media` that collided with new campaign ids after a DB reset (test artifacts only).
+- **Decision:** no locks or leases in Stage 3; the Stage 4 worker's claim handles concurrency properly. Publishing stays synchronous until then.

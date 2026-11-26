@@ -20,3 +20,8 @@
 | Malformed input → 4xx, never 500 | `scripts/probes/stage2_4xx.py` (79 cases) | all 4xx; >8 MB → 413 | 2026-11-26 |
 | Campaign creation is atomic | injected save failure | 500, no rows, no orphan image files | 2026-11-26 |
 | Stage 2 quality gates | `make lint`, `make test`, `make probe`, `make probe5` | clean, 194 passed (98%), all PASS | 2026-11-26 |
+| Publish twice + retry after timeout → 1 post per platform | `make probe1` | 11 PASS; key committed before the call (read mid-flight) | 2026-11-26 |
+| 429 Retry-After honoured, no hammering | `make probe2`, `/_stats` gaps | `[429,429,201]`, gaps ≥ Retry-After, 5 attempts max | 2026-11-26 |
+| No plaintext token in DB or logs | `make probe6` (`pg_dump` + container logs vs `/_tokens`) | 8 PASS, none found | 2026-11-26 |
+| Concurrent publishes never mark an accepted post failed | `python3 scripts/probes/stage3_concurrency_stress.py 0.5 8 25 3` (8 runs, 510 entries) | `anomalies=0` | 2026-11-26 |
+| Stage 3 quality gates | `make lint`, `make test` | clean, 253 passed (98%) | 2026-11-26 |

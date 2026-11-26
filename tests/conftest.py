@@ -11,6 +11,9 @@ _test_url = _main_url.set(database="app_test")
 os.environ["DATABASE_URL"] = _test_url.render_as_string(hide_password=False)
 os.environ["MEDIA_DIR"] = tempfile.mkdtemp(prefix="media_test_")
 os.environ["LLM_PROVIDER"] = "none"
+os.environ["TOKEN_ENCRYPTION_KEY"] = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # test only
+os.environ["FAKE_CLIENT_ID"] = "test-client"
+os.environ["FAKE_CLIENT_SECRET"] = "test-secret"
 
 _admin = create_engine(_main_url, isolation_level="AUTOCOMMIT")
 with _admin.connect() as c:

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import CampaignIn, CampaignOut, PgId, PostIn, PostOut
 from app.db import get_session
-from app.services import campaigns, posts
+from app.services import campaigns, posts, publishing
 from app.services.errors import InvalidInput, NotFound
 
 router = APIRouter()
@@ -32,5 +32,14 @@ def create_campaign(data: CampaignIn, session: Db):
 def get_campaign(campaign_id: Annotated[PgId, Path()], session: Db):
     try:
         return campaigns.get_campaign(session, campaign_id)
+    except NotFound as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@router.post("/campaigns/{campaign_id}/publish", response_model=CampaignOut)
+def publish_campaign(campaign_id: Annotated[PgId, Path()], session: Db):
+    # shortcut: runs synchronously in the request; Stage 4 moves this call into the worker.
+    try:
+        return publishing.publish_campaign(session, campaign_id)
     except NotFound as e:
         raise HTTPException(404, str(e)) from e

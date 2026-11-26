@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import random
 import secrets
@@ -8,6 +9,7 @@ import time
 import urllib.request
 import uuid
 from datetime import UTC, datetime
+from email.utils import formatdate
 from typing import Literal
 from urllib.parse import parse_qs
 
@@ -36,6 +38,8 @@ class RateLimit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
     retry_after_seconds: int = Field(30, ge=0)
+    count: int | None = Field(None, ge=1)  # only the next N fresh posts get 429, then auto-off
+    format: Literal["seconds", "http-date"] = "seconds"
 
 
 class DropResponse(BaseModel):
@@ -72,6 +76,22 @@ control = Control()
 tokens: set[str] = set()
 posts: list[dict] = []
 idempotency: dict[str, tuple[int, dict]] = {}  # key -> (status, response body)
+stats: list[dict] = []  # every POST /v1/posts: arrival time, key, final status
+
+
+@app.middleware("http")
+async def record_post_requests(request: Request, call_next):
+    if request.method != "POST" or request.url.path != "/v1/posts":
+        return await call_next(request)
+    row = {
+        "at": datetime.now(UTC).isoformat(),
+        "idempotency_key": request.headers.get("idempotency-key"),
+        "status": None,
+    }
+    stats.append(row)
+    response = await call_next(request)
+    row["status"] = response.status_code
+    return response
 
 
 def deliver(url: str, body: str, headers: dict[str, str]) -> None:
@@ -134,11 +154,21 @@ async def create_post(
     if idempotency_key in idempotency:
         status, stored = idempotency[idempotency_key]
         return JSONResponse(stored, status_code=status)
-    if control.rate_limit.enabled:
+    rl = control.rate_limit
+    if rl.enabled:
+        if rl.count is not None:
+            rl.count -= 1
+            if rl.count == 0:
+                rl.enabled, rl.count = False, None
+        wait = rl.retry_after_seconds
+        # Round the date up so a client honouring it never comes back early.
+        retry_after = (
+            str(wait)
+            if rl.format == "seconds"
+            else formatdate(math.ceil(time.time()) + wait, usegmt=True)
+        )
         return JSONResponse(
-            {"error": "rate_limited"},
-            status_code=429,
-            headers={"Retry-After": str(control.rate_limit.retry_after_seconds)},
+            {"error": "rate_limited"}, status_code=429, headers={"Retry-After": retry_after}
         )
     if random.random() < control.failure_rate:
         return JSONResponse({"error": "unavailable"}, status_code=503)
@@ -162,6 +192,17 @@ def list_posts() -> list[dict]:
     return posts
 
 
+@app.get("/_stats")
+def get_stats() -> dict:
+    return {"post_requests": stats}
+
+
+@app.get("/_tokens")
+def list_tokens() -> list[str]:
+    # dev-only: lets probe 6 grep the DB dump and logs for every issued token
+    return sorted(tokens)
+
+
 @app.get("/_control")
 def get_control() -> Control:
     return control
@@ -182,4 +223,5 @@ def reset() -> Control:
     tokens.clear()
     posts.clear()
     idempotency.clear()
+    stats.clear()
     return control

@@ -6,8 +6,9 @@ The frontend uses only what is listed here. Backend: update this in the same cha
 |---|---|---|---|---|---|---|
 | GET | /health | liveness | — | `{status}` | — | 0 |
 | POST | /posts | create a post | `{title (1–200), body (1–20000), source_url? (http/https), image_b64? (PNG/JPEG, ≤5 MB, ≤25 MP)}` | 201 `{id, title, created_at}` | 422 | 2 |
-| POST | /campaigns | generate images + captions for a post | `{post_id, platforms: ["instagram"\|"x", ...] (non-empty, unique), brand_name? (≤60)}` | 201 `{id, post_id, brand_name, created_at, entries: [{id, platform, caption, image_url, image_width, image_height, status}]}` | 404 unknown post, 422 | 2 |
+| POST | /campaigns | generate images + captions for a post | `{post_id, platforms: ["instagram"\|"x", ...] (non-empty, unique), brand_name? (≤60)}` | 201 `{id, post_id, brand_name, created_at, entries: [{id, platform, caption, image_url, image_width, image_height, status, attempts, last_error, platform_post_id}]}`; `status`: `draft` → `publishing` (accepted, awaiting webhook) / `failed`; `published` from Stage 5 | 404 unknown post, 422 | 2 |
 | GET | /campaigns/{id} | read a campaign | — | same as POST /campaigns | 404, 422 bad id | 2 |
+| POST | /campaigns/{id}/publish | publish every entry not yet accepted (synchronous until Stage 4; see [[Publishing Service]]) | — | 200 same shape as GET /campaigns/{id} | 404 unknown campaign, 422 bad id | 3 |
 | any | any (api, port 8000) | request body cap | body > 8 MB (declared `Content-Length` or streamed size) | 413 `{detail}` before parsing | 413 | 2 |
 | GET | /media/{file} | generated PNGs (`image_url`) | — | `image/png` | 404 | 2 |
 
@@ -19,5 +20,7 @@ The frontend uses only what is listed here. Backend: update this in the same cha
 | POST | /v1/posts | publish; needs Bearer + `Idempotency-Key`; 201 / 400 / 401 / 422 / 429 (`Retry-After`) / 503 | 1 |
 | GET | /_posts | list stored posts | 1 |
 | GET | /_control | current switches | 1 |
-| POST | /_control | partial update: `rate_limit`, `failure_rate`, `drop_response`, `forged_signature`, `webhook_url` (422 on bad values) | 1 |
-| POST | /_control/reset | clear posts, keys, tokens; switches to defaults | 1 |
+| GET | /_stats | `{post_requests: [{at, idempotency_key, status}]}`, every `POST /v1/posts` (401s too) | 3 |
+| GET | /_tokens | issued access tokens (dev-only, for probe 6) | 3 |
+| POST | /_control | partial update: `rate_limit` (`enabled`, `retry_after_seconds`, `count` auto-off after N fresh 429s, `format` `seconds`\|`http-date`), `failure_rate`, `drop_response`, `forged_signature`, `webhook_url` (422 on bad values) | 1 |
+| POST | /_control/reset | clear posts, keys, tokens, stats; switches to defaults | 1, 3 |

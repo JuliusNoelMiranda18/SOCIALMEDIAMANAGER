@@ -1,4 +1,6 @@
 import time
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -68,6 +70,36 @@ def test_rate_limit(c):
     r = post(c, h)
     assert r.status_code == 429 and r.headers["Retry-After"] == "7"
     assert c.get("/_posts").json() == []
+
+
+def test_rate_limit_count_and_http_date(c):
+    h = auth(c)
+    rl = {"enabled": True, "retry_after_seconds": 3, "count": 2, "format": "http-date"}
+    c.post("/_control", json={"rate_limit": rl})
+    r1, r2 = post(c, h, "a"), post(c, h, "a")
+    assert r1.status_code == r2.status_code == 429
+    when = parsedate_to_datetime(r1.headers["Retry-After"])
+    assert 3 <= (when - datetime.now(UTC)).total_seconds() <= 4  # rounded up, never early
+    assert post(c, h, "a").status_code == 201  # switch turned itself off
+    assert c.get("/_control").json()["rate_limit"]["enabled"] is False
+    assert post(c, h, "b").status_code == 201
+
+
+def test_stats_and_tokens(c):
+    h = auth(c)
+    c.post("/v1/posts", json=POST, headers={"Idempotency-Key": "k"})  # 401 is recorded too
+    post(c, h, "k1")
+    post(c, h, "k1")
+    rows = c.get("/_stats").json()["post_requests"]
+    assert [(r["idempotency_key"], r["status"]) for r in rows] == [
+        ("k", 401),
+        ("k1", 201),
+        ("k1", 201),
+    ]
+    assert datetime.fromisoformat(rows[0]["at"]).tzinfo is not None
+    assert c.get("/_tokens").json() == [h["Authorization"].split()[1]]
+    c.post("/_control/reset")
+    assert c.get("/_stats").json() == {"post_requests": []} and c.get("/_tokens").json() == []
 
 
 def test_failure_rate(c):
@@ -146,6 +178,7 @@ def test_non_finite_failure_rate_is_422(c, bad):
 def test_nested_partial_update_merges(c):
     c.post("/_control", json={"rate_limit": {"enabled": True, "retry_after_seconds": 11}})
     c.post("/_control", json={"rate_limit": {"enabled": False}})
-    assert c.get("/_control").json()["rate_limit"] == {"enabled": False, "retry_after_seconds": 11}
+    rl = c.get("/_control").json()["rate_limit"]
+    assert rl == {"enabled": False, "retry_after_seconds": 11, "count": None, "format": "seconds"}
     c.post("/_control", json={"drop_response": {"delay_seconds": 5}})
     assert c.get("/_control").json()["drop_response"] == {"enabled": False, "delay_seconds": 5}

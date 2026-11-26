@@ -62,6 +62,9 @@ class EntryOut(BaseModel):
     image_width: int
     image_height: int
     status: str
+    attempts: int
+    last_error: str | None
+    platform_post_id: str | None
 
 
 class CampaignOut(BaseModel):

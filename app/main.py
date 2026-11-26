@@ -8,6 +8,12 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.config import settings
+from app.crypto import load_key
+
+try:
+    load_key(settings.token_encryption_key)
+except ValueError as e:
+    raise SystemExit(f"api refuses to start: {e}") from None
 
 MAX_BODY = 8 * 1024 * 1024
 

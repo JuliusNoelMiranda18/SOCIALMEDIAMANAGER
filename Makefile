@@ -1,4 +1,6 @@
-.PHONY: up down test lint seed probe probe5
+.PHONY: env up down test lint seed probe probe5 probe1 probe2 probe6
+env:
+	python3 scripts/make_env.py
 up:
 	docker compose up -d --build --wait
 down:
@@ -15,3 +17,9 @@ probe:
 	bash scripts/probes/fake_platform.sh
 probe5:
 	bash scripts/probes/probe5_content.sh
+probe1:
+	bash scripts/probes/probe1_idempotency.sh
+probe2:
+	bash scripts/probes/probe2_rate_limit.sh
+probe6:
+	bash scripts/probes/probe6_tokens.sh

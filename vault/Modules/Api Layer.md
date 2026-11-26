@@ -2,7 +2,7 @@
 
 **Purpose:** HTTP entrypoint (FastAPI), settings, the `/media` static mount, and the services that back the post/campaign endpoints.
 **Files:** `app/main.py`, `app/config.py`, `app/api/routes.py`, `app/api/schemas.py`, `app/services/posts.py`, `app/services/campaigns.py`, `app/services/errors.py`, `app/worker/__main__.py`
-**Last changed:** Stage 2, 2026-11-26
+**Last changed:** Stage 3, 2026-11-26
 
 ## Key functions / classes
 | Name | Signature | What it does |
@@ -11,13 +11,15 @@
 | `create_post` | `POST /posts` | Pydantic validation, then `services.posts.create_post` (image check → 422) |
 | `create_campaign` | `POST /campaigns` | `services.campaigns.create_campaign`; unknown post → 404 |
 | `get_campaign` | `GET /campaigns/{id}` | 404 if missing |
+| `publish_campaign` | `POST /campaigns/{id}/publish` | [[Publishing Service]]; 404 unknown, 422 bad id |
+| startup key check | `app/main.py` import | invalid `TOKEN_ENCRYPTION_KEY` → api exits with a clear message ([[Token Crypto]]) |
 | `_invalid` | `RequestValidationError` handler | 422 without echoing input (NaN / lone surrogates would otherwise 500) |
 | `services.campaigns.create_campaign` | `(session, post_id, platforms, brand_name)` | images + captions + `llm_calls` in one transaction; on any error rolls back and deletes written files |
-| `Settings` | pydantic-settings | DB URL, fake platform URL, placeholder secrets, `MEDIA_DIR`, LLM settings |
+| `Settings` | pydantic-settings | DB URL, fake platform URL, secrets, `MEDIA_DIR`, LLM settings; Stage 3: `FAKE_CLIENT_ID/SECRET`, `PUBLIC_BASE_URL`, `PUBLISH_TIMEOUT_SECONDS`, `PUBLISH_MAX_ATTEMPTS`, `BACKOFF_BASE_MS`, `BACKOFF_CAP_MS`, `MAX_RETRY_AFTER_SECONDS` |
 | worker loop | `python -m app.worker` | idle; job claiming is Stage 4 |
 
 ## Connections
-- Depends on: [[Data Model]], [[Image Pipeline]], [[Caption Composer]]
+- Depends on: [[Data Model]], [[Image Pipeline]], [[Caption Composer]], [[Publishing Service]], [[Token Crypto]]
 - Used by: [[System Map]], [[API]]
 
 ## Invariants

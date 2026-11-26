@@ -4,7 +4,17 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://app:app@db:5432/app"
     fake_platform_url: str = "http://fake-platform:9000"
-    token_encryption_key: str = "changeme-placeholder"  # real AES-GCM key arrives in Stage 3
+    # base64 of 32 bytes; validated when the api starts (app/main.py), not here,
+    # because fake_platform imports these settings too.
+    token_encryption_key: str = ""
+    fake_client_id: str = ""
+    fake_client_secret: str = ""
+    public_base_url: str = "http://api:8000"
+    publish_timeout_seconds: float = 5
+    publish_max_attempts: int = 5
+    backoff_base_ms: int = 500
+    backoff_cap_ms: int = 30000
+    max_retry_after_seconds: int = 60
     webhook_secret: str = "changeme-placeholder"  # real HMAC secret arrives in Stage 5
     media_dir: str = "/srv/media"
     llm_provider: str = "none"  # "none" (templates only) or "gemini"

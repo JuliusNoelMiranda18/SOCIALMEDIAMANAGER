@@ -53,6 +53,9 @@ class SocialPostEntry(Base):
     image_height: Mapped[int]
     status: Mapped[str] = mapped_column(String(20), server_default="draft")
     platform_post_id: Mapped[str | None] = mapped_column(Text)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, unique=True)
+    attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=NOW)
 
     @property
