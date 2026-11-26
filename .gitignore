@@ -5,8 +5,12 @@ node_modules/
 dist/
 .pytest_cache/
 .coverage
-vault/.obsidian/workspace*
 *.log
 CLAUDE.md
 .claude/
 media/
+# Local-only: agent kit, Obsidian vaults, macOS clutter
+vault/
+SOCIAL-MEDIA-VAULT/
+.DS_Store
+*.fileloc
